@@ -30,13 +30,17 @@ urlpatterns = [
 
 urlpatterns += [
 
+    path('users/', UserListView.as_view()),
+    path('users/add/', UserCreateView.as_view()),
+
     path('courses/', CourseListCreateView.as_view()),
     path('courses/<int:pk>/', CourseDetailView.as_view()),
 
     path('mentors/', MentorListCreateView.as_view()),
     path('mentors/<int:pk>/', MentorDetailView.as_view()),
 
-    path('students/', StudentListCreateView.as_view()),
+    path('students/', StudentListView.as_view()),
+    path('students/add/', StudentCreateView.as_view()),
     path('students/<int:pk>/', StudentDetailView.as_view()),
 
     path('groups/', GroupListCreateView.as_view()),
@@ -56,6 +60,7 @@ urlpatterns += [
 
     path('products/', ProductListCreateView.as_view()),
     path('products/<int:pk>/', ProductDetailView.as_view()),
+
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

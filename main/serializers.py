@@ -11,6 +11,27 @@ class UserSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = ['id', 'username', 'email', 'role']
 
+class UserCreateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = UserProfile
+        fields = ['username', 'password', 'role']
+
+    def create(self, validated_data):
+        with transaction.atomic():
+            user = UserProfile.objects.create_user(
+                username=validated_data['username'],
+                password=validated_data['password'],
+                role=validated_data['role']
+            )
+            if user.role == "student":
+                Student.objects.get_or_create(user=user)
+            elif user.role == "teacher":
+                Mentor.objects.get_or_create(user=user)
+
+            return user
+
 class CourseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
@@ -30,6 +51,11 @@ class GroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = Group
         fields = '__all__'
+
+class StudentCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Student
+        fields = ['image', 'bio', 'birth_date', 'phone_number']
 
 class StudentSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)

@@ -40,6 +40,8 @@ class Group(models.Model):
 
 class Student(models.Model):
     user = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
+    first_name = models.CharField(max_length=200, blank=True, null=True)
+    last_name = models.CharField(max_length=200, blank=True, null=True)
     image = models.ImageField(upload_to='students/', blank=True, null=True)
     bio = models.TextField(blank=True, null=True)
     point = models.PositiveIntegerField(default=0)

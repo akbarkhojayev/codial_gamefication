@@ -1,14 +1,23 @@
 from rest_framework import generics
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import *
 from .serializers import *
 
+
+class UserListView(generics.ListAPIView):
+    queryset = UserProfile.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]
+
+class UserCreateView(generics.CreateAPIView):
+    queryset = UserProfile.objects.all()
+    serializer_class = UserCreateSerializer
+    permission_classes = [AllowAny]
 
 class CourseListCreateView(generics.ListCreateAPIView):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticated]
-
 
 class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Course.objects.all()
@@ -20,14 +29,17 @@ class MentorListCreateView(generics.ListCreateAPIView):
     serializer_class = MentorSerializer
     permission_classes = [IsAuthenticated]
 
-
 class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Mentor.objects.select_related('user')
     serializer_class = MentorSerializer
     permission_classes = [IsAuthenticated]
 
+class StudentCreateView(generics.CreateAPIView):
+    queryset = Student.objects.all()
+    serializer_class = StudentCreateSerializer
+    permission_classes = [IsAuthenticated]
 
-class StudentListCreateView(generics.ListCreateAPIView):
+class StudentListView(generics.ListAPIView):
     queryset = Student.objects.select_related('user').prefetch_related('groups')
     serializer_class = StudentSerializer
     permission_classes = [IsAuthenticated]
@@ -69,7 +81,6 @@ class BookListCreateView(generics.ListCreateAPIView):
     serializer_class = BookSerializer
     permission_classes = [IsAuthenticated]
 
-
 class BookDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Book.objects.all()
     serializer_class = BookSerializer
@@ -80,7 +91,6 @@ class NewsListCreateView(generics.ListCreateAPIView):
     serializer_class = NewsSerializer
     permission_classes = [IsAuthenticated]
 
-
 class NewsDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = New.objects.all()
     serializer_class = NewsSerializer
@@ -90,7 +100,6 @@ class AuctionListCreateView(generics.ListCreateAPIView):
     queryset = Auction.objects.all()
     serializer_class = AuctionSerializer
     permission_classes = [IsAuthenticated]
-
 
 class AuctionDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Auction.objects.all()
