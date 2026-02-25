@@ -2,6 +2,8 @@ from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import *
 from .serializers import *
+from rest_framework_simplejwt.views import TokenObtainPairView
+
 
 
 class UserListView(generics.ListAPIView):
@@ -13,6 +15,9 @@ class UserCreateView(generics.CreateAPIView):
     queryset = UserProfile.objects.all()
     serializer_class = UserCreateSerializer
     permission_classes = [AllowAny]
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
 
 class CourseListCreateView(generics.ListCreateAPIView):
     queryset = Course.objects.all()
