@@ -3,8 +3,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import *
 from .serializers import *
 from rest_framework_simplejwt.views import TokenObtainPairView
-
-
+from .permissions import *
 
 class UserListView(generics.ListAPIView):
     queryset = UserProfile.objects.all()
@@ -37,12 +36,12 @@ class MentorListCreateView(generics.ListCreateAPIView):
 class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Mentor.objects.select_related('user')
     serializer_class = MentorSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsTeacher]
 
 class StudentCreateView(generics.CreateAPIView):
     queryset = Student.objects.all()
     serializer_class = StudentCreateSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
 class StudentListView(generics.ListAPIView):
     queryset = Student.objects.select_related('user').prefetch_related('groups')
@@ -53,7 +52,7 @@ class StudentListView(generics.ListAPIView):
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Student.objects.select_related('user').prefetch_related('groups')
     serializer_class = StudentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
 class GroupListCreateView(generics.ListCreateAPIView):
     queryset = Group.objects.select_related('course', 'mentor')
