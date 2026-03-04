@@ -30,6 +30,8 @@ urlpatterns = [
 
 urlpatterns += [
 
+    path('get/me/', GetMeAPIView.as_view()),
+
     path('users/', UserListView.as_view()),
     path('users/add/', UserCreateView.as_view()),
 

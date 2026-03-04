@@ -139,3 +139,42 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = '__all__'
+
+class GetMeSerializer(serializers.Serializer):
+    user = UserSerializer()
+    student = StudentSerializer(required=False, allow_null=True)
+    mentor = MentorSerializer(required=False, allow_null=True)
+
+    def to_representation(self, instance):
+        """
+        instance -> request.user keladi
+        """
+        user = instance
+        data = {
+            "user": UserSerializer(user, context=self.context).data,
+            "student": None,
+            "mentor": None,
+        }
+
+        if getattr(user, "role", None) == "student":
+            student = (
+                Student.objects
+                .select_related("user")
+                .prefetch_related("groups__course", "groups__mentor__user")
+                .filter(user=user)
+                .first()
+            )
+            if student:
+                data["student"] = StudentSerializer(student, context=self.context).data
+
+        elif getattr(user, "role", None) == "teacher":
+            mentor = (
+                Mentor.objects
+                .select_related("user")
+                .filter(user=user)
+                .first()
+            )
+            if mentor:
+                data["mentor"] = MentorSerializer(mentor, context=self.context).data
+
+        return data

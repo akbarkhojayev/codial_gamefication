@@ -6,6 +6,8 @@ from .serializers import *
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .permissions import *
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.views import APIView
+from rest_framework.response import Response
 
 class UserListView(generics.ListAPIView):
     queryset = UserProfile.objects.all()
@@ -138,3 +140,11 @@ class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Product.objects.select_related('auction')
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
+
+
+class GetMeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = GetMeSerializer(request.user, context={"request": request})
+        return Response(serializer.data)
