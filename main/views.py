@@ -1,9 +1,11 @@
 from rest_framework import generics
+from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import *
 from .serializers import *
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .permissions import *
+from rest_framework.parsers import MultiPartParser, FormParser
 
 class UserListView(generics.ListAPIView):
     queryset = UserProfile.objects.all()
@@ -32,6 +34,7 @@ class MentorListCreateView(generics.ListCreateAPIView):
     queryset = Mentor.objects.select_related('user')
     serializer_class = MentorSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
 class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Mentor.objects.select_related('user')
@@ -42,6 +45,7 @@ class StudentCreateView(generics.CreateAPIView):
     queryset = Student.objects.all()
     serializer_class = StudentCreateSerializer
     permission_classes = [IsAdmin]
+    parser_classes = [MultiPartParser, FormParser]
 
 class StudentListView(generics.ListAPIView):
     queryset = Student.objects.select_related('user').prefetch_related('groups')
@@ -84,6 +88,7 @@ class BookListCreateView(generics.ListCreateAPIView):
     queryset = Book.objects.all()
     serializer_class = BookSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
 class BookDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Book.objects.all()
@@ -94,6 +99,15 @@ class NewsListCreateView(generics.ListCreateAPIView):
     queryset = New.objects.all()
     serializer_class = NewsSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+class NewCreateView(generics.CreateAPIView):
+    queryset = New.objects.all()
+    serializer_class = NewsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 class NewsDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = New.objects.all()
@@ -114,6 +128,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
     queryset = Product.objects.select_related('auction')
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
 
 class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):

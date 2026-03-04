@@ -66,7 +66,7 @@ class GroupSerializer(serializers.ModelSerializer):
 class StudentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
-        fields = ['image', 'bio', 'birth_date', 'phone_number']
+        fields = '__all__'
 
 class StudentSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -128,6 +128,7 @@ class NewsSerializer(serializers.ModelSerializer):
     class Meta:
         model = New
         fields = '__all__'
+        read_only_fields = ['user']
 
 class AuctionSerializer(serializers.ModelSerializer):
     class Meta:

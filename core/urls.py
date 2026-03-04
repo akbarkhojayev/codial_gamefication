@@ -54,6 +54,7 @@ urlpatterns += [
 
     path('news/', NewsListCreateView.as_view()),
     path('news/<int:pk>/', NewsDetailView.as_view()),
+    path('news/add/',NewCreateView.as_view()),
 
     path('auctions/', AuctionListCreateView.as_view()),
     path('auctions/<int:pk>/', AuctionDetailView.as_view()),
