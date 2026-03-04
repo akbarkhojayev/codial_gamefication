@@ -40,6 +40,7 @@ class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Mentor.objects.select_related('user')
     serializer_class = MentorSerializer
     permission_classes = [IsTeacher]
+    parser_classes = [MultiPartParser, FormParser]
 
 class StudentCreateView(generics.CreateAPIView):
     queryset = Student.objects.all()
@@ -57,12 +58,12 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Student.objects.select_related('user').prefetch_related('groups')
     serializer_class = StudentSerializer
     permission_classes = [IsStudent]
+    parser_classes = [MultiPartParser, FormParser]
 
 class GroupListCreateView(generics.ListCreateAPIView):
     queryset = Group.objects.select_related('course', 'mentor')
     serializer_class = GroupSerializer
     permission_classes = [IsAuthenticated]
-
 
 class GroupDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Group.objects.select_related('course', 'mentor')
@@ -94,6 +95,7 @@ class BookDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Book.objects.all()
     serializer_class = BookSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
 class NewsListCreateView(generics.ListCreateAPIView):
     queryset = New.objects.all()
@@ -113,6 +115,7 @@ class NewsDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = New.objects.all()
     serializer_class = NewsSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
 class AuctionListCreateView(generics.ListCreateAPIView):
     queryset = Auction.objects.all()
