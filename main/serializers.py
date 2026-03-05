@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.db import transaction
 from .models import *
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
@@ -43,6 +44,11 @@ class CourseSerializer(serializers.ModelSerializer):
         model = Course
         fields = '__all__'
 
+class MentorCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Mentor
+        fields = '__all__'
+
 class MentorSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
 
@@ -58,10 +64,35 @@ class GroupSerializer(serializers.ModelSerializer):
         model = Group
         fields = '__all__'
 
+class GroupCreateSerializer(serializers.ModelSerializer):
+    course_id = serializers.PrimaryKeyRelatedField(
+        source="course", queryset=Course.objects.all(), write_only=True
+    )
+    mentor_id = serializers.PrimaryKeyRelatedField(
+        source="mentor", queryset=Mentor.objects.all(), write_only=True, allow_null=True, required=False
+    )
+
+    lesson_days = serializers.ListField(
+        child=serializers.CharField(),
+        required=False
+    )
+
+    class Meta:
+        model = Group
+        fields = [
+            "id",
+            "name",
+            "active",
+            "created_at",
+            "lesson_days",
+            "course_id", "mentor_id"
+        ]
+        read_only_fields = ["id", "created_at"]
+
 class StudentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
-        fields = '__all__'
+        fields = ['first_name','last_name','image','bio','point','birth_date','phone_number','groups','user']
 
 class StudentSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -174,9 +205,6 @@ class GetMeSerializer(serializers.Serializer):
 
         return data
 
-from rest_framework import serializers
-from .models import PointType
-
 class BulkPointItemSerializer(serializers.Serializer):
     student_id = serializers.IntegerField()
     point_type_id = serializers.IntegerField()
@@ -189,9 +217,4 @@ class BulkSaveSerializer(serializers.Serializer):
 
     def validate_items(self, items):
         return items
-
-class PointTypeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PointType
-        fields = ["id", "name", "max_point", "is_manual"]
 

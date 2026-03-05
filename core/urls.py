@@ -30,7 +30,7 @@ urlpatterns = [
 
 urlpatterns += [
 
-    path('get/me/', GetMeAPIView.as_view()),
+    path('get/me/', GetMeView.as_view()),
 
     path('users/', UserListView.as_view()),
     path('users/add/', UserCreateView.as_view()),
@@ -39,6 +39,7 @@ urlpatterns += [
     path('courses/<int:pk>/', CourseDetailView.as_view()),
 
     path('mentors/', MentorListCreateView.as_view()),
+    path('mentors/add/',MentorCreateView.as_view()),
     path('mentors/<int:pk>/', MentorDetailView.as_view()),
 
     path('students/', StudentListView.as_view()),
@@ -46,6 +47,7 @@ urlpatterns += [
     path('students/<int:pk>/', StudentDetailView.as_view()),
 
     path('groups/', GroupListCreateView.as_view()),
+    path('groups/add/', GroupCreateView.as_view()),
     path('groups/<int:pk>/', GroupDetailView.as_view()),
 
     path('points/', GivePointListCreateView.as_view()),
@@ -63,7 +65,7 @@ urlpatterns += [
 
     path('products/', ProductListCreateView.as_view()),
     path('products/<int:pk>/', ProductDetailView.as_view()),
-    path("api/teacher/assessment/", AssessmentTableView.as_view()),
+    path("api/teacher/assessment/<int:pk>/", AssessmentTableView.as_view(), name="api_teacher_assessment_retrieve"),
     path("api/teacher/assessment/save/", AssessmentBulkSaveView.as_view()),
 
 ]

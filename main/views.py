@@ -5,14 +5,30 @@ from .serializers import *
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .permissions import *
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework import status
+from rest_framework.response import Response
 from datetime import date as dt_date
 from django.utils import timezone
-from django.db.models import Prefetch
-from rest_framework.views import APIView
-from rest_framework import status
-from rest_framework.generics import RetrieveAPIView, GenericAPIView
-from rest_framework.response import Response
 
+WEEKDAY_UZ = {
+    0: "Dushanba",
+    1: "Seshanba",
+    2: "Chorshanba",
+    3: "Payshanba",
+    4: "Juma",
+    5: "Shanba",
+    6: "Yakshanba",
+}
+
+DAYKEY_UZ = {
+    "monday": "Dushanba",
+    "tuesday": "Seshanba",
+    "wednesday": "Chorshanba",
+    "thursday": "Payshanba",
+    "friday": "Juma",
+    "saturday": "Shanba",
+    "sunday": "Yakshanba",
+}
 
 class UserListView(generics.ListAPIView):
     queryset = UserProfile.objects.all()
@@ -37,9 +53,14 @@ class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticated]
 
-class MentorListCreateView(generics.ListCreateAPIView):
+class MentorListCreateView(generics.ListAPIView):
     queryset = Mentor.objects.select_related('user')
     serializer_class = MentorSerializer
+    permission_classes = [IsAuthenticated]
+
+class MentorCreateView(generics.CreateAPIView):
+    queryset = Mentor.objects.all()
+    serializer_class = MentorCreateSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
@@ -52,7 +73,7 @@ class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
 class StudentCreateView(generics.CreateAPIView):
     queryset = Student.objects.all()
     serializer_class = StudentCreateSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
 class StudentListView(generics.ListAPIView):
@@ -60,16 +81,20 @@ class StudentListView(generics.ListAPIView):
     serializer_class = StudentSerializer
     permission_classes = [IsAuthenticated]
 
-
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Student.objects.select_related('user').prefetch_related('groups')
     serializer_class = StudentSerializer
-    permission_classes = [IsStudent]
+    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
-class GroupListCreateView(generics.ListCreateAPIView):
+class GroupListCreateView(generics.ListAPIView):
     queryset = Group.objects.select_related('course', 'mentor')
     serializer_class = GroupSerializer
+    permission_classes = [IsAuthenticated]
+
+class GroupCreateView(generics.CreateAPIView):
+    queryset = Group.objects.all()
+    serializer_class = GroupCreateSerializer
     permission_classes = [IsAuthenticated]
 
 class GroupDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -104,7 +129,7 @@ class BookDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
-class NewsListCreateView(generics.ListCreateAPIView):
+class NewsListCreateView(generics.ListAPIView):
     queryset = New.objects.all()
     serializer_class = NewsSerializer
     permission_classes = [IsAuthenticated]
@@ -114,6 +139,7 @@ class NewCreateView(generics.CreateAPIView):
     queryset = New.objects.all()
     serializer_class = NewsSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -146,36 +172,15 @@ class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
 
-
-class GetMeAPIView(APIView):
+class GetMeView(generics.RetrieveAPIView):
+    serializer_class = GetMeSerializer
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        serializer = GetMeSerializer(request.user, context={"request": request})
-        return Response(serializer.data)
+    def get_object(self):
+        return self.request.user
 
 
-WEEKDAY_UZ = {
-    0: "Dushanba",
-    1: "Seshanba",
-    2: "Chorshanba",
-    3: "Payshanba",
-    4: "Juma",
-    5: "Shanba",
-    6: "Yakshanba",
-}
-
-DAYKEY_UZ = {
-    "monday": "Dushanba",
-    "tuesday": "Seshanba",
-    "wednesday": "Chorshanba",
-    "thursday": "Payshanba",
-    "friday": "Juma",
-    "saturday": "Shanba",
-    "sunday": "Yakshanba",
-}
-
-class AssessmentTableView(RetrieveAPIView):
+class AssessmentTableView(generics.RetrieveAPIView):
     permission_classes = [IsTeacher]
     queryset = Group.objects.select_related("course", "mentor")
     lookup_field = "pk"
@@ -257,11 +262,12 @@ class AssessmentTableView(RetrieveAPIView):
             "rows": rows,
         })
 
-class AssessmentBulkSaveView(GenericAPIView):
+
+class AssessmentBulkSaveView(generics.CreateAPIView):
     permission_classes = [IsTeacher]
     serializer_class = BulkSaveSerializer
 
-    def post(self, request, *args, **kwargs):
+    def create(self, request, *args, **kwargs):
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
 
@@ -270,14 +276,22 @@ class AssessmentBulkSaveView(GenericAPIView):
         items = ser.validated_data["items"]
 
         mentor = Mentor.objects.select_related("user").get(user=request.user)
-        group = Group.objects.filter(pk=group_id, mentor=mentor).select_related("course", "mentor").first()
+
+        group = (
+            Group.objects
+            .filter(pk=group_id, mentor=mentor)
+            .select_related("course", "mentor")
+            .first()
+        )
         if not group:
             return Response({"detail": "Group not found or not yours"}, status=status.HTTP_404_NOT_FOUND)
 
         pt_map = {pt.id: pt for pt in PointType.objects.all()}
+
         student_ids = {i["student_id"] for i in items}
         students_in_group = set(
-            Student.objects.filter(groups=group, id__in=student_ids)
+            Student.objects
+            .filter(groups=group, id__in=student_ids)
             .values_list("id", flat=True)
         )
 
