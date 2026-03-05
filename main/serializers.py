@@ -1,11 +1,6 @@
 from rest_framework import serializers
 from django.db import transaction
-from .models import (
-    UserProfile, Course, Mentor, Group,
-    Student, PointType, GivePoint,
-    Book, New, Auction, Product
-)
-
+from .models import *
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
@@ -178,3 +173,25 @@ class GetMeSerializer(serializers.Serializer):
                 data["mentor"] = MentorSerializer(mentor, context=self.context).data
 
         return data
+
+from rest_framework import serializers
+from .models import PointType
+
+class BulkPointItemSerializer(serializers.Serializer):
+    student_id = serializers.IntegerField()
+    point_type_id = serializers.IntegerField()
+    amount = serializers.IntegerField(min_value=0)
+
+class BulkSaveSerializer(serializers.Serializer):
+    group_id = serializers.IntegerField()
+    date = serializers.DateField()
+    items = BulkPointItemSerializer(many=True)
+
+    def validate_items(self, items):
+        return items
+
+class PointTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PointType
+        fields = ["id", "name", "max_point", "is_manual"]
+

@@ -3,7 +3,7 @@ from django.urls import path
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
-from rest_framework_simplejwt.views import token_obtain_pair , token_refresh
+from rest_framework_simplejwt.views import token_refresh
 from django.conf import settings
 from django.conf.urls.static import static
 from main.views import *
@@ -63,6 +63,8 @@ urlpatterns += [
 
     path('products/', ProductListCreateView.as_view()),
     path('products/<int:pk>/', ProductDetailView.as_view()),
+    path("api/teacher/assessment/", AssessmentTableView.as_view()),
+    path("api/teacher/assessment/save/", AssessmentBulkSaveView.as_view()),
 
 ]
 

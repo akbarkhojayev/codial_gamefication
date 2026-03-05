@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
+from django.utils import timezone
+from django.db.models import F
 from django.db import transaction
 
 class UserProfile(AbstractUser):
@@ -11,21 +13,16 @@ class UserProfile(AbstractUser):
     )
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
 
-
 class Course(models.Model):
     name = models.CharField(max_length=200, unique=True)
-
     def __str__(self):
         return self.name
-
 
 class Mentor(models.Model):
     user = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
     point_limit = models.PositiveIntegerField(default=0)
-
     def __str__(self):
         return self.user.username
-
 
 class Group(models.Model):
     name = models.CharField(max_length=200)
@@ -34,9 +31,10 @@ class Group(models.Model):
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    lesson_days = models.JSONField(default=list, blank=True)
+
     def __str__(self):
         return f"{self.name} ({self.course.name})"
-
 
 class Student(models.Model):
     user = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
@@ -44,8 +42,10 @@ class Student(models.Model):
     last_name = models.CharField(max_length=200, blank=True, null=True)
     image = models.ImageField(upload_to='students/', blank=True, null=True)
     bio = models.TextField(blank=True, null=True)
+
     point = models.PositiveIntegerField(default=0)
     groups = models.ManyToManyField(Group, blank=True)
+
     birth_date = models.DateField(blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -56,75 +56,57 @@ class Student(models.Model):
 class PointType(models.Model):
     name = models.CharField(max_length=200, unique=True)
     max_point = models.PositiveIntegerField(default=0)
+    is_manual = models.BooleanField(default=False)
+
     def __str__(self):
         return self.name
 
 class GivePoint(models.Model):
-    mentor = models.ForeignKey('Mentor', on_delete=models.CASCADE)
-    student = models.ForeignKey('Student', on_delete=models.CASCADE)
+    mentor = models.ForeignKey(Mentor, on_delete=models.CASCADE)
+    student = models.ForeignKey(Student, on_delete=models.CASCADE)
+    group = models.ForeignKey(Group, on_delete=models.CASCADE)
+
+    point_type = models.ForeignKey(PointType, on_delete=models.PROTECT)
     amount = models.PositiveIntegerField(default=0)
-    point_type = models.ForeignKey('PointType', on_delete=models.SET_NULL, null=True, blank=True)
+
     description = models.TextField(blank=True, null=True)
+    date = models.DateField(default=timezone.localdate)
+
     created_at = models.DateTimeField(auto_now_add=True)
-    date = models.DateField(blank=True, null=True)
 
     class Meta:
-        unique_together = ('mentor', 'student', 'point_type', 'created_at')
-
-    def __str__(self):
-        return f"{self.student.user.username} +{self.amount} pts ({self.point_type.name if self.point_type else 'No type'})"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['student', 'group', 'point_type', 'date'],
+                name='uniq_givepoint_student_group_type_date'
+            )
+        ]
 
     def clean(self):
-        # max point type check
-        if self.point_type and self.amount > self.point_type.max_point:
+        if self.amount > self.point_type.max_point:
             raise ValidationError(
                 f"Amount cannot exceed {self.point_type.max_point} for {self.point_type.name}."
             )
-
-        # mentor available point_limit check
-        if self.pk:
-            prev_instance = GivePoint.objects.get(pk=self.pk)
-            available_points = self.mentor.point_limit + prev_instance.amount
-        else:
-            available_points = self.mentor.point_limit
-
-        if self.amount > available_points:
-            raise ValidationError(
-                f"Mentor {self.mentor.user.username} does not have enough point_limit "
-                f"(available: {available_points})."
-            )
+        if not self.student.groups.filter(pk=self.group_id).exists():
+            raise ValidationError("Student is not in this group.")
 
     def save(self, *args, **kwargs):
+        self.full_clean()
         with transaction.atomic():
-            # rollback old points if update
+            old_amount = 0
             if self.pk:
-                prev_instance = GivePoint.objects.select_related('student', 'mentor').get(pk=self.pk)
-                if prev_instance.student:
-                    prev_instance.student.point -= prev_instance.amount
-                    prev_instance.student.save()
-                if prev_instance.mentor:
-                    prev_instance.mentor.point_limit += prev_instance.amount
-                    prev_instance.mentor.save()
+                old_amount = GivePoint.objects.select_for_update().get(pk=self.pk).amount
+
+            delta = self.amount - old_amount
+
+            mentor = Mentor.objects.select_for_update().get(pk=self.mentor_id)
+            if delta > mentor.point_limit:
+                raise ValidationError(f"Not enough point_limit (available: {mentor.point_limit}).")
 
             super().save(*args, **kwargs)
 
-            # apply new points
-            if self.student:
-                self.student.point += self.amount
-                self.student.save()
-            if self.mentor:
-                self.mentor.point_limit -= self.amount
-                self.mentor.save()
-
-    def delete(self, *args, **kwargs):
-        with transaction.atomic():
-            if self.student:
-                self.student.point -= self.amount
-                self.student.save()
-            if self.mentor:
-                self.mentor.point_limit += self.amount
-                self.mentor.save()
-            super().delete(*args, **kwargs)
+            Student.objects.filter(pk=self.student_id).update(point=F('point') + delta)
+            Mentor.objects.filter(pk=self.mentor_id).update(point_limit=F('point_limit') - delta)
 
 
 class Book(models.Model):
