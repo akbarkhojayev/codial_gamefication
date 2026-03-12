@@ -35,11 +35,6 @@ class UserListView(generics.ListAPIView):
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
-class UserCreateView(generics.CreateAPIView):
-    queryset = UserProfile.objects.all()
-    serializer_class = UserCreateSerializer
-    permission_classes = [AllowAny]
-
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 

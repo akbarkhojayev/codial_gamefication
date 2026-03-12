@@ -33,7 +33,6 @@ urlpatterns += [
     path('get/me/', GetMeView.as_view()),
 
     path('users/', UserListView.as_view()),
-    path('users/add/', UserCreateView.as_view()),
 
     path('courses/', CourseListCreateView.as_view()),
     path('courses/<int:pk>/', CourseDetailView.as_view()),
