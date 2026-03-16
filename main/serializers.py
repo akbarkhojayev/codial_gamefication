@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from django.db import transaction
+from rest_framework.fields import SerializerMethodField
+
 from .models import (
     UserProfile, Course, Mentor, Group, Student,
     PointType, GivePoint, Book, New, Auction, Product
@@ -17,8 +19,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         data['role'] = self.user.role
-        data['username'] = self.user.username
-        data['email'] = self.user.email
         return data
 
 
@@ -29,34 +29,111 @@ class CourseSerializer(serializers.ModelSerializer):
 
 
 class MentorCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Mentor
-        fields = '__all__'
+    username = serializers.CharField(write_only=True)
+    email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True)
 
-    def validate_user(self, value):
-        if value.role != 'teacher':
-            raise serializers.ValidationError("Bu user teacher bo‘lishi kerak.")
-        if Mentor.objects.filter(user=value).exists():
-            raise serializers.ValidationError("Bu user uchun mentor allaqachon yaratilgan.")
-        return value
-
-
-class MentorSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
 
     class Meta:
         model = Mentor
-        fields = '__all__'
+        fields = [
+            'user',
+            'username',
+            'email',
+            'password',
+            'point_limit',
+        ]
+        extra_kwargs = {
+            'point_limit': {'required': False},
+        }
+
+    def validate_username(self, value):
+        if UserProfile.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Bu username allaqachon band.")
+        return value
+
+    def validate_email(self, value):
+        if value and UserProfile.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Bu email allaqachon ishlatilgan.")
+        return value
+
+    def create(self, validated_data):
+        username = validated_data.pop('username')
+        email = validated_data.pop('email', '')
+        password = validated_data.pop('password')
+
+        with transaction.atomic():
+            user = UserProfile.objects.create_user(
+                username=username,
+                email=email,
+                password=password,
+                role='teacher'
+            )
+
+            mentor = Mentor.objects.create(
+                user=user,
+                **validated_data
+            )
+
+        return mentor
+class MentorMiniSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+
+    class Meta:
+        model = Mentor
+        fields = ['id', 'user', 'point_limit']
+
+
+class GroupForMentorSerializer(serializers.ModelSerializer):
+    course = CourseSerializer(read_only=True)
+    student_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Group
+        fields = [
+            'id',
+            'name',
+            'active',
+            'created_at',
+            'lesson_days',
+            'course',
+            'student_count',
+        ]
+
+    def get_student_count(self, obj):
+        return Student.objects.filter(groups=obj).count()
+
+
+class MentorSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    groups = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Mentor
+        fields = [
+            'id',
+            'user',
+            'point_limit',
+            'groups',
+        ]
+
+    def get_groups(self, obj):
+        groups = Group.objects.filter(mentor=obj).select_related('course')
+        return GroupForMentorSerializer(groups, many=True, context=self.context).data
 
 
 class GroupSerializer(serializers.ModelSerializer):
     course = CourseSerializer(read_only=True)
-    mentor = MentorSerializer(read_only=True)
+    mentor = MentorMiniSerializer(read_only=True)
+    student_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Group
         fields = '__all__'
 
+    def get_student_count(self, obj):
+        return Student.objects.filter(groups=obj).count()
 
 class GroupCreateSerializer(serializers.ModelSerializer):
     course_id = serializers.PrimaryKeyRelatedField(
@@ -157,21 +234,22 @@ class StudentCreateSerializer(serializers.ModelSerializer):
 
         return student
 
+class BookSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Book
+        fields = '__all__'
 
 class StudentSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     groups = GroupSerializer(many=True, read_only=True)
+    book_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Student
         fields = '__all__'
 
-
-class PointTypeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PointType
-        fields = '__all__'
-
+    def get_book_count(self, obj):
+        return Book.objects.filter(student=obj).count()
 
 class GivePointSerializer(serializers.ModelSerializer):
     class Meta:
@@ -213,31 +291,24 @@ class GivePointSerializer(serializers.ModelSerializer):
 
         return give_point
 
-
-class BookSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Book
-        fields = '__all__'
-
-
 class NewsSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
     class Meta:
         model = New
         fields = '__all__'
         read_only_fields = ['user']
-
-
-class AuctionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Auction
-        fields = '__all__'
-
 
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = '__all__'
 
+class AuctionSerializer(serializers.ModelSerializer):
+    products = ProductSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Auction
+        fields = '__all__'
 
 class GetMeSerializer(serializers.Serializer):
     user = UserSerializer(read_only=True)
@@ -297,3 +368,18 @@ class BulkSaveSerializer(serializers.Serializer):
         if not items:
             raise serializers.ValidationError("Items bo‘sh bo‘lmasligi kerak.")
         return items
+
+class PointTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PointType
+        fields = '__all__'
+
+    def validate_max_point(self, value):
+        if value < 0:
+            raise serializers.ValidationError("max_point manfiy bo‘lishi mumkin emas.")
+        return value
+
+    def validate_name(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Name bo‘sh bo‘lishi mumkin emas.")
+        return value

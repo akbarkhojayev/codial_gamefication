@@ -9,6 +9,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from datetime import date as dt_date
 from django.utils import timezone
+from django_filters.rest_framework import DjangoFilterBackend
 
 WEEKDAY_UZ = {
     0: "Dushanba",
@@ -62,7 +63,7 @@ class MentorCreateView(generics.CreateAPIView):
 class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Mentor.objects.select_related('user')
     serializer_class = MentorSerializer
-    permission_classes = [IsTeacher]
+    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
 class StudentCreateView(generics.CreateAPIView):
@@ -117,6 +118,8 @@ class BookListCreateView(generics.ListCreateAPIView):
     serializer_class = BookSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['student']
 
 class BookDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Book.objects.all()
@@ -328,3 +331,13 @@ class AssessmentBulkSaveView(generics.CreateAPIView):
                 errors.append({"student_id": sid, "point_type_id": ptid, "detail": str(e)})
 
         return Response({"saved": saved, "errors": errors}, status=status.HTTP_200_OK)
+
+class PointTypeListCreateView(generics.ListCreateAPIView):
+    queryset = PointType.objects.all().order_by('id')
+    serializer_class = PointTypeSerializer
+    permission_classes = [IsAuthenticated]
+
+class PointTypeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = PointType.objects.all()
+    serializer_class = PointTypeSerializer
+    permission_classes = [IsAuthenticated]

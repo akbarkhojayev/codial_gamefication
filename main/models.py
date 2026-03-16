@@ -20,7 +20,10 @@ class Course(models.Model):
 
 class Mentor(models.Model):
     user = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
+    avatar = models.ImageField(upload_to='mentors/', blank=True, null=True)
+    bio = models.TextField(blank=True, null=True)
     point_limit = models.PositiveIntegerField(default=0)
+
     def __str__(self):
         return self.user.username
 
@@ -29,6 +32,8 @@ class Group(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE)
     mentor = models.ForeignKey(Mentor, on_delete=models.SET_NULL, null=True)
     active = models.BooleanField(default=True)
+    icon = models.CharField(blank=True, null=True)
+    color = models.CharField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     lesson_days = models.JSONField(default=list, blank=True)
@@ -135,14 +140,17 @@ class New(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     image = models.ImageField(upload_to='news/', blank=True, null=True)
     user = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
+    pin = models.BooleanField(default=False)
 
     def __str__(self):
         return self.title
 
 class Auction(models.Model):
+    title = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
     data = models.DateField()
     time = models.TimeField()
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
         return self.description
@@ -150,9 +158,10 @@ class Auction(models.Model):
 class Product(models.Model):
     name = models.CharField(max_length=200)
     image = models.ImageField(upload_to='products/', blank=True, null=True)
-    auction = models.ForeignKey(Auction, on_delete=models.CASCADE)
+    auction = models.ForeignKey(Auction, on_delete=models.CASCADE, related_name='products')
     amount = models.PositiveIntegerField(default=0)
     point_cost = models.PositiveIntegerField(default=0)
+    description = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return self.name
