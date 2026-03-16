@@ -114,6 +114,8 @@ class MentorSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'user',
+            'bio',
+            'avatar',
             'point_limit',
             'groups',
         ]
