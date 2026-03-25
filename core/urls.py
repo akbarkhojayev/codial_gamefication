@@ -65,6 +65,10 @@ urlpatterns += [
     path('pointtypes/', PointTypeListCreateView.as_view()),
     path('pointtypes/<int:pk>/', PointTypeDetailView.as_view()),
 
+    path('admins/', AdminListView.as_view()),
+    path('admins/add/', AdminCreateView.as_view()),
+    path('admins/<int:pk>/', AdminDetailView.as_view()),
+
     path('products/', ProductListCreateView.as_view()),
     path('products/<int:pk>/', ProductDetailView.as_view()),
     path("api/teacher/assessment/<int:pk>/", AssessmentTableView.as_view(), name="api_teacher_assessment_retrieve"),

@@ -13,8 +13,29 @@ class UserProfile(AbstractUser):
     )
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
 
+class Admin(models.Model):
+    user = models.OneToOneField(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='admin_profile'
+    )
+    name = models.CharField(max_length=200)
+    email = models.EmailField(blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    avatar = models.ImageField(upload_to='admins/', blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
 class Course(models.Model):
     name = models.CharField(max_length=200, unique=True)
+    icon = models.CharField(max_length=200,blank=True, null=True)
+    color = models.CharField(max_length=200,blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+
     def __str__(self):
         return self.name
 
@@ -23,6 +44,7 @@ class Mentor(models.Model):
     avatar = models.ImageField(upload_to='mentors/', blank=True, null=True)
     bio = models.TextField(blank=True, null=True)
     point_limit = models.PositiveIntegerField(default=0)
+    direction = models.CharField(max_length=200, blank=True, null=True)
 
     def __str__(self):
         return self.user.username

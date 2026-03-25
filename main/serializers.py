@@ -1,10 +1,9 @@
 from rest_framework import serializers
 from django.db import transaction
 from rest_framework.fields import SerializerMethodField
-
 from .models import (
     UserProfile, Course, Mentor, Group, Student,
-    PointType, GivePoint, Book, New, Auction, Product
+    PointType, GivePoint, Book, New, Auction, Product, Admin
 )
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -42,6 +41,7 @@ class MentorCreateSerializer(serializers.ModelSerializer):
             'username',
             'email',
             'password',
+            'direction',
             'point_limit',
         ]
         extra_kwargs = {
@@ -77,6 +77,7 @@ class MentorCreateSerializer(serializers.ModelSerializer):
             )
 
         return mentor
+
 class MentorMiniSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
 
@@ -108,6 +109,7 @@ class GroupForMentorSerializer(serializers.ModelSerializer):
 class MentorSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     groups = serializers.SerializerMethodField()
+    total_students = serializers.SerializerMethodField()
 
     class Meta:
         model = Mentor
@@ -116,14 +118,75 @@ class MentorSerializer(serializers.ModelSerializer):
             'user',
             'bio',
             'avatar',
+            'direction',
             'point_limit',
             'groups',
+            'total_students',
         ]
 
     def get_groups(self, obj):
         groups = Group.objects.filter(mentor=obj).select_related('course')
         return GroupForMentorSerializer(groups, many=True, context=self.context).data
 
+    def get_total_students(self, obj):
+        return Student.objects.filter(groups__mentor=obj).distinct().count()
+
+class AdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Admin
+        fields = '__all__'
+
+class AdminCreateSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(write_only=True)
+    email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True)
+
+    user = UserSerializer(read_only=True)
+
+    class Meta:
+        model = Admin
+        fields = [
+            'user',
+            'username',
+            'email',
+            'password',
+            'description',
+            'avatar',
+            'is_active',
+        ]
+        extra_kwargs = {
+            'is_active': {'required': False},
+        }
+
+    def validate_username(self, value):
+        if UserProfile.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Bu username allaqachon band.")
+        return value
+
+    def validate_email(self, value):
+        if value and UserProfile.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Bu email allaqachon ishlatilgan.")
+        return value
+
+    def create(self, validated_data):
+        username = validated_data.pop('username')
+        email = validated_data.pop('email', '')
+        password = validated_data.pop('password')
+
+        with transaction.atomic():
+            user = UserProfile.objects.create_user(
+                username=username,
+                email=email,
+                password=password,
+                role='admin'
+            )
+
+            admin = Admin.objects.create(
+                user=user,
+                **validated_data
+            )
+
+        return admin
 
 class GroupSerializer(serializers.ModelSerializer):
     course = CourseSerializer(read_only=True)
@@ -166,6 +229,8 @@ class GroupCreateSerializer(serializers.ModelSerializer):
             'lesson_days',
             'course_id',
             'mentor_id',
+            'icon',
+            'color',
         ]
         read_only_fields = ['id', 'created_at']
 

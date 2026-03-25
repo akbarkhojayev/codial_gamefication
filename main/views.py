@@ -341,3 +341,19 @@ class PointTypeDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = PointType.objects.all()
     serializer_class = PointTypeSerializer
     permission_classes = [IsAuthenticated]
+
+class AdminListView(generics.ListAPIView):
+    queryset = Admin.objects.all()
+    serializer_class = AdminSerializer
+    permission_classes = [IsAuthenticated]
+
+class AdminCreateView(generics.CreateAPIView):
+    queryset = Admin.objects.all()
+    serializer_class = AdminCreateSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+class AdminDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Admin.objects.all()
+    serializer_class = AdminSerializer
+    permission_classes = [IsAuthenticated]

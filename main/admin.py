@@ -4,10 +4,11 @@ from django.contrib.auth.admin import UserAdmin
 from django.utils.html import format_html
 
 from .models import (
-    UserProfile, Course, Mentor, Group,
+    UserProfile, Admin, Course, Mentor, Group,
     Student, PointType, GivePoint,
     Book, New, Auction, Product
 )
+
 
 # -------------------------
 # Helpers
@@ -24,6 +25,7 @@ DAY_CHOICES = [
 
 DAYKEY_UZ = dict(DAY_CHOICES)
 
+
 def lesson_days_label(days):
     if not days:
         return "-"
@@ -31,10 +33,6 @@ def lesson_days_label(days):
 
 
 def badge(text, kind="secondary"):
-    """
-    kind: primary|secondary|success|danger|warning|info|dark
-    Jazzmin Bootstrap badge classlariga mos.
-    """
     return format_html('<span class="badge badge-{}">{}</span>', kind, text)
 
 
@@ -55,12 +53,10 @@ class GroupAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # instance bor bo‘lsa, JSONField ichidagi listni formga joylaymiz
         if self.instance and getattr(self.instance, "lesson_days", None):
             self.initial["lesson_days"] = self.instance.lesson_days
 
     def clean_lesson_days(self):
-        # har doim list bo‘lib saqlansin
         return self.cleaned_data.get("lesson_days", [])
 
 
@@ -86,6 +82,32 @@ class UserProfileAdmin(UserAdmin):
         }.get(obj.role, "secondary")
         return badge(obj.get_role_display(), color)
     role_badge.short_description = "Role"
+
+
+# -------------------------
+# Admin
+# -------------------------
+@admin.register(Admin)
+class AdminProfileAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "active_badge", "created_at")
+    list_filter = ("is_active", "created_at")
+    search_fields = ("user__username", "user__email", "description")
+    autocomplete_fields = ("user",)
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at",)
+
+    fieldsets = (
+        ("Asosiy", {"fields": ("user", "is_active")}),
+        ("Profil", {"fields": ("avatar", "description")}),
+        ("System", {"fields": ("created_at",)}),
+    )
+
+    def active_badge(self, obj):
+        return badge(
+            "Active" if obj.is_active else "Inactive",
+            "success" if obj.is_active else "secondary"
+        )
+    active_badge.short_description = "Status"
 
 
 # -------------------------
@@ -117,7 +139,6 @@ class GroupStudentInline(admin.TabularInline):
     extra = 1
     verbose_name = "Student"
     verbose_name_plural = "Students"
-    autocomplete_fields = ("student",) if hasattr(Student.groups.through, "student") else ()
 
 
 # -------------------------
@@ -127,14 +148,21 @@ class GroupStudentInline(admin.TabularInline):
 class GroupAdmin(admin.ModelAdmin):
     form = GroupAdminForm
 
-    list_display = ("id", "name", "course", "mentor", "active_badge", "lesson_days_view", "created_at")
+    list_display = (
+        "id",
+        "name",
+        "course",
+        "mentor",
+        "active_badge",
+        "lesson_days_view",
+        "created_at",
+    )
     list_filter = ("active", "course", "mentor")
     search_fields = ("name", "course__name", "mentor__user__username", "mentor__user__email")
     autocomplete_fields = ("course", "mentor")
     ordering = ("-created_at",)
     inlines = (GroupStudentInline,)
 
-    # Jazzmin: form sahifasini chiroyli bo‘lib bo‘lib chiqarish
     fieldsets = (
         ("Asosiy ma'lumot", {"fields": ("name", "course", "mentor", "active")}),
         ("Dars jadvali", {"fields": ("lesson_days",)}),
@@ -145,7 +173,10 @@ class GroupAdmin(admin.ModelAdmin):
     lesson_days_view.short_description = "Dars kunlari"
 
     def active_badge(self, obj):
-        return badge("Active" if obj.active else "Inactive", "success" if obj.active else "secondary")
+        return badge(
+            "Active" if obj.active else "Inactive",
+            "success" if obj.active else "secondary"
+        )
     active_badge.short_description = "Status"
 
 
@@ -156,7 +187,13 @@ class GroupAdmin(admin.ModelAdmin):
 class StudentAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "full_name", "point", "phone_number", "created_at")
     list_filter = ("groups", "created_at")
-    search_fields = ("user__username", "user__email", "phone_number", "first_name", "last_name")
+    search_fields = (
+        "user__username",
+        "user__email",
+        "phone_number",
+        "first_name",
+        "last_name",
+    )
     autocomplete_fields = ("user", "groups")
     ordering = ("-created_at",)
 
@@ -183,8 +220,10 @@ class PointTypeAdmin(admin.ModelAdmin):
     ordering = ("id",)
 
     def manual_badge(self, obj):
-        # is_manual=True => input (imtihon/vazifa), False => chip (qatnashdi, vaqtida...)
-        return badge("Input" if obj.is_manual else "Chip", "warning" if obj.is_manual else "info")
+        return badge(
+            "Input" if obj.is_manual else "Chip",
+            "warning" if obj.is_manual else "info"
+        )
     manual_badge.short_description = "UI turi"
 
 
