@@ -29,12 +29,12 @@ class Admin(models.Model):
     def __str__(self):
         return self.name
 
-
 class Course(models.Model):
     name = models.CharField(max_length=200, unique=True)
     icon = models.CharField(max_length=200,blank=True, null=True)
     color = models.CharField(max_length=200,blank=True, null=True)
     description = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
         return self.name
@@ -51,13 +51,12 @@ class Mentor(models.Model):
 
 class Group(models.Model):
     name = models.CharField(max_length=200)
-    course = models.ForeignKey(Course, on_delete=models.CASCADE)
-    mentor = models.ForeignKey(Mentor, on_delete=models.SET_NULL, null=True)
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='groups')
+    mentor = models.ForeignKey(Mentor, on_delete=models.SET_NULL, null=True, related_name='groups')
     active = models.BooleanField(default=True)
-    icon = models.CharField(blank=True, null=True)
-    color = models.CharField(blank=True, null=True)
+    icon = models.CharField(max_length=200, blank=True, null=True)
+    color = models.CharField(max_length=200, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
-
     lesson_days = models.JSONField(default=list, blank=True)
 
     def __str__(self):

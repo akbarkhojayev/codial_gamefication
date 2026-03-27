@@ -21,10 +21,37 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
 
 
+from rest_framework import serializers
+from .models import Course, Student, Mentor, Group
+
+
 class CourseSerializer(serializers.ModelSerializer):
+    group_count = serializers.SerializerMethodField()
+    student_count = serializers.SerializerMethodField()
+    teacher_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Course
-        fields = '__all__'
+        fields = [
+            'id',
+            'name',
+            'icon',
+            'color',
+            'description',
+            'is_active',
+            'group_count',
+            'student_count',
+            'teacher_count',
+        ]
+
+    def get_group_count(self, obj):
+        return Group.objects.filter(course=obj).count()
+
+    def get_student_count(self, obj):
+        return Student.objects.filter(groups__course=obj).distinct().count()
+
+    def get_teacher_count(self, obj):
+        return Mentor.objects.filter(groups__course=obj).distinct().count()
 
 
 class MentorCreateSerializer(serializers.ModelSerializer):
@@ -132,6 +159,7 @@ class MentorSerializer(serializers.ModelSerializer):
         return Student.objects.filter(groups__mentor=obj).distinct().count()
 
 class AdminSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
     class Meta:
         model = Admin
         fields = '__all__'
@@ -308,7 +336,10 @@ class BookSerializer(serializers.ModelSerializer):
 
 class StudentSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
-    groups = GroupSerializer(many=True, read_only=True)
+    groups = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Group.objects.all()
+    )
     book_count = serializers.SerializerMethodField()
 
     class Meta:
