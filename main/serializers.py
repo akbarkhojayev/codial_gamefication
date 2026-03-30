@@ -6,6 +6,8 @@ from .models import (
     PointType, GivePoint, Book, New, Auction, Product, Admin
 )
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import serializers
+from .models import Course, Student, Mentor, Group
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -19,11 +21,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         data['role'] = self.user.role
         return data
-
-
-from rest_framework import serializers
-from .models import Course, Student, Mentor, Group
-
 
 class CourseSerializer(serializers.ModelSerializer):
     group_count = serializers.SerializerMethodField()
@@ -102,7 +99,6 @@ class MentorCreateSerializer(serializers.ModelSerializer):
                 user=user,
                 **validated_data
             )
-
         return mentor
 
 class MentorMiniSerializer(serializers.ModelSerializer):
@@ -111,7 +107,6 @@ class MentorMiniSerializer(serializers.ModelSerializer):
     class Meta:
         model = Mentor
         fields = ['id', 'user', 'point_limit']
-
 
 class GroupForMentorSerializer(serializers.ModelSerializer):
     course = CourseSerializer(read_only=True)
@@ -131,7 +126,6 @@ class GroupForMentorSerializer(serializers.ModelSerializer):
 
     def get_student_count(self, obj):
         return Student.objects.filter(groups=obj).count()
-
 
 class MentorSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -157,6 +151,63 @@ class MentorSerializer(serializers.ModelSerializer):
 
     def get_total_students(self, obj):
         return Student.objects.filter(groups__mentor=obj).distinct().count()
+
+class MentorUpdateSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(required=False)
+    email = serializers.EmailField(required=False, allow_blank=True)
+
+    class Meta:
+        model = Mentor
+        fields = [
+            'username',
+            'email',
+            'bio',
+            'avatar',
+            'direction',
+            'point_limit',
+        ]
+        extra_kwargs = {
+            'bio': {'required': False},
+            'avatar': {'required': False},
+            'direction': {'required': False},
+            'point_limit': {'required': False},
+        }
+
+    def validate_username(self, value):
+        user = self.instance.user
+        if UserProfile.objects.filter(username=value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("Bu username allaqachon band.")
+        return value
+
+    def validate_email(self, value):
+        if not value:
+            return value
+        user = self.instance.user
+        if UserProfile.objects.filter(email=value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("Bu email allaqachon ishlatilgan.")
+        return value
+
+    def update(self, instance, validated_data):
+        username = validated_data.pop('username', None)
+        email = validated_data.pop('email', None)
+
+        with transaction.atomic():
+            user = instance.user
+            update_fields = []
+            if username is not None:
+                user.username = username
+                update_fields.append('username')
+            if email is not None:
+                user.email = email
+                update_fields.append('email')
+            if update_fields:
+                user.save(update_fields=update_fields)
+
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+            instance.save()
+
+        return instance
 
 class AdminSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -224,7 +275,6 @@ class GroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = Group
         fields = '__all__'
-
     def get_student_count(self, obj):
         return Student.objects.filter(groups=obj).count()
 
@@ -261,7 +311,6 @@ class GroupCreateSerializer(serializers.ModelSerializer):
             'color',
         ]
         read_only_fields = ['id', 'created_at']
-
 
 class StudentCreateSerializer(serializers.ModelSerializer):
     username = serializers.CharField(write_only=True)
@@ -377,16 +426,6 @@ class GivePointSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         with transaction.atomic():
             give_point = GivePoint.objects.create(**validated_data)
-
-            student = give_point.student
-            mentor = give_point.mentor
-
-            student.point += give_point.amount
-            mentor.point_limit -= give_point.amount
-
-            student.save(update_fields=['point'])
-            mentor.save(update_fields=['point_limit'])
-
         return give_point
 
 class NewsSerializer(serializers.ModelSerializer):
@@ -445,12 +484,10 @@ class GetMeSerializer(serializers.Serializer):
 
         return data
 
-
 class BulkPointItemSerializer(serializers.Serializer):
     student_id = serializers.IntegerField()
     point_type_id = serializers.IntegerField()
     amount = serializers.IntegerField(min_value=1)
-
 
 class BulkSaveSerializer(serializers.Serializer):
     group_id = serializers.IntegerField()
@@ -465,6 +502,18 @@ class BulkSaveSerializer(serializers.Serializer):
     def validate_items(self, items):
         if not items:
             raise serializers.ValidationError("Items bo‘sh bo‘lmasligi kerak.")
+        return items
+
+class BulkUpdateItemSerializer(serializers.Serializer):
+    givepoint_id = serializers.IntegerField()
+    amount = serializers.IntegerField(min_value=0)
+
+class BulkUpdateSerializer(serializers.Serializer):
+    items = BulkUpdateItemSerializer(many=True)
+
+    def validate_items(self, items):
+        if not items:
+            raise serializers.ValidationError("Items bo'sh bo'lmasligi kerak.")
         return items
 
 class PointTypeSerializer(serializers.ModelSerializer):

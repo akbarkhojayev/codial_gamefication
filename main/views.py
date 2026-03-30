@@ -1,4 +1,6 @@
 from rest_framework import generics
+from django.db import transaction
+from django.db.models import F
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import *
 from .serializers import *
@@ -66,6 +68,11 @@ class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
+    def get_serializer_class(self):
+        if self.request.method in ('PUT', 'PATCH'):
+            return MentorUpdateSerializer
+        return MentorSerializer
+
 class StudentCreateView(generics.CreateAPIView):
     queryset = Student.objects.all()
     serializer_class = StudentCreateSerializer
@@ -99,12 +106,15 @@ class GroupDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
 class GivePointListCreateView(generics.ListCreateAPIView):
-    queryset = GivePoint.objects.select_related(
-        'mentor', 'student', 'point_type'
-    )
     serializer_class = GivePointSerializer
     permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['student', 'group', 'mentor', 'date', 'point_type']
 
+    def get_queryset(self):
+        return GivePoint.objects.select_related(
+            'mentor', 'student', 'point_type', 'group'
+        )
 
 class GivePointDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = GivePoint.objects.select_related(
@@ -164,7 +174,6 @@ class ProductListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
-
 class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Product.objects.select_related('auction')
     serializer_class = ProductSerializer
@@ -176,7 +185,6 @@ class GetMeView(generics.RetrieveAPIView):
 
     def get_object(self):
         return self.request.user
-
 
 class AssessmentTableView(generics.RetrieveAPIView):
     permission_classes = [IsTeacher]
@@ -212,7 +220,6 @@ class AssessmentTableView(generics.RetrieveAPIView):
             .filter(group=group, date=the_date, student__in=students)
             .select_related("point_type", "student", "student__user")
         )
-
         points_map = {}
         for gp in givepoints:
             points_map.setdefault(gp.student_id, {})[gp.point_type_id] = gp.amount
@@ -259,7 +266,6 @@ class AssessmentTableView(generics.RetrieveAPIView):
             "point_types": PointTypeSerializer(point_types, many=True).data,
             "rows": rows,
         })
-
 
 class AssessmentBulkSaveView(generics.CreateAPIView):
     permission_classes = [IsTeacher]
@@ -331,6 +337,65 @@ class AssessmentBulkSaveView(generics.CreateAPIView):
                 errors.append({"student_id": sid, "point_type_id": ptid, "detail": str(e)})
 
         return Response({"saved": saved, "errors": errors}, status=status.HTTP_200_OK)
+
+class AssessmentBulkUpdateView(generics.UpdateAPIView):
+    permission_classes = [IsTeacher]
+    serializer_class = BulkUpdateSerializer
+
+    def update(self, request, *args, **kwargs):
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        items = ser.validated_data["items"]
+
+        mentor = Mentor.objects.select_related("user").get(user=request.user)
+
+        givepoint_ids = [i["givepoint_id"] for i in items]
+        givepoints = {
+            gp.id: gp
+            for gp in GivePoint.objects
+            .select_related("point_type", "student")
+            .filter(id__in=givepoint_ids, mentor=mentor)
+        }
+
+        updated = 0
+        errors = []
+
+        with transaction.atomic():
+            mentor_locked = Mentor.objects.select_for_update().get(pk=mentor.pk)
+
+            for i in items:
+                gp = givepoints.get(i["givepoint_id"])
+                if not gp:
+                    errors.append({"givepoint_id": i["givepoint_id"], "detail": "Topilmadi yoki sizniki emas"})
+                    continue
+
+                new_amt = i["amount"]
+                old_amt = gp.amount
+                delta = new_amt - old_amt
+
+                if new_amt > gp.point_type.max_point:
+                    errors.append({
+                        "givepoint_id": gp.id,
+                        "detail": f"Maksimal ball: {gp.point_type.max_point}"
+                    })
+                    continue
+
+                if delta > mentor_locked.point_limit:
+                    errors.append({
+                        "givepoint_id": gp.id,
+                        "detail": f"Mentor limitida yetarli ball yo'q (mavjud: {mentor_locked.point_limit})"
+                    })
+                    continue
+
+                GivePoint.objects.filter(pk=gp.id).update(amount=new_amt)
+                Student.objects.filter(pk=gp.student_id).update(point=F("point") + delta)
+                mentor_locked.point_limit -= delta
+                updated += 1
+
+            Mentor.objects.filter(pk=mentor.pk).update(point_limit=mentor_locked.point_limit)
+
+        return Response({"updated": updated, "errors": errors}, status=status.HTTP_200_OK)
+
 
 class PointTypeListCreateView(generics.ListCreateAPIView):
     queryset = PointType.objects.all().order_by('id')

@@ -14,11 +14,7 @@ class UserProfile(AbstractUser):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
 
 class Admin(models.Model):
-    user = models.OneToOneField(
-        UserProfile,
-        on_delete=models.CASCADE,
-        related_name='admin_profile'
-    )
+    user = models.OneToOneField(UserProfile,on_delete=models.CASCADE,related_name='admin_profile')
     name = models.CharField(max_length=200)
     email = models.EmailField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
@@ -68,10 +64,8 @@ class Student(models.Model):
     last_name = models.CharField(max_length=200, blank=True, null=True)
     image = models.ImageField(upload_to='students/', blank=True, null=True)
     bio = models.TextField(blank=True, null=True)
-
     point = models.PositiveIntegerField(default=0)
     groups = models.ManyToManyField(Group, blank=True)
-
     birth_date = models.DateField(blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -91,13 +85,10 @@ class GivePoint(models.Model):
     mentor = models.ForeignKey(Mentor, on_delete=models.CASCADE)
     student = models.ForeignKey(Student, on_delete=models.CASCADE)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
-
     point_type = models.ForeignKey(PointType, on_delete=models.PROTECT)
     amount = models.PositiveIntegerField(default=0)
-
     description = models.TextField(blank=True, null=True)
     date = models.DateField(default=timezone.localdate)
-
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -134,14 +125,12 @@ class GivePoint(models.Model):
             Student.objects.filter(pk=self.student_id).update(point=F('point') + delta)
             Mentor.objects.filter(pk=self.mentor_id).update(point_limit=F('point_limit') - delta)
 
-
 class Book(models.Model):
 
     BOOK_STATUS_CHOICES = (
     ("O'qiyapman", "O'qiyapman"),
     ("Tugatim", "Tugatim"),
     )
-
     title = models.CharField(max_length=200)
     author = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
@@ -149,7 +138,6 @@ class Book(models.Model):
     end_date = models.DateField(blank=True, null=True)
     book_photo = models.ImageField(upload_to='books/', blank=True, null=True)
     status = models.CharField(max_length=20,choices=BOOK_STATUS_CHOICES, default="O'qiyapman")
-
     student = models.ForeignKey('Student', on_delete=models.CASCADE)
 
     def __str__(self):
