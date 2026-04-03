@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from datetime import date as dt_date
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
+import django_filters
 
 WEEKDAY_UZ = {
     0: "Dushanba",
@@ -396,6 +397,76 @@ class AssessmentBulkUpdateView(generics.UpdateAPIView):
 
         return Response({"updated": updated, "errors": errors}, status=status.HTTP_200_OK)
 
+
+class CoinHistoryFilter(django_filters.FilterSet):
+    date_from = django_filters.DateFilter(field_name='date', lookup_expr='gte')
+    date_to = django_filters.DateFilter(field_name='date', lookup_expr='lte')
+
+    class Meta:
+        model = GivePoint
+        fields = ['student', 'group', 'date_from', 'date_to']
+
+class CoinHistoryView(generics.ListAPIView):
+    serializer_class = CoinHistorySerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = CoinHistoryFilter
+
+    def get_queryset(self):
+        return GivePoint.objects.select_related(
+            'mentor__user', 'student', 'group', 'point_type'
+        ).order_by('-date', '-created_at')
+
+class ActiveGroupsView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request, *args, **kwargs):
+        from django.db.models import Sum, Count
+
+        groups = (
+            Group.objects
+            .select_related('mentor__user')
+            .prefetch_related('student_set__user')
+            .annotate(
+                total_coins=Sum('givepoint__amount'),
+                student_count=Count('student', distinct=True),
+            )
+            .order_by('-total_coins')
+        )
+
+        data = [
+            {
+                'id': g.id,
+                'name': g.name,
+                'student_count': g.student_count,
+                'total_coins': g.total_coins or 0,
+                'mentor': {
+                    'id': g.mentor.id,
+                    'username': g.mentor.user.username,
+                } if g.mentor else None,
+                'students': [
+                    {
+                        'id': s.id,
+                        'full_name': f"{s.first_name or ''} {s.last_name or ''}".strip() or s.user.username,
+                        'point': s.point,
+                        'image': s.image.url if s.image else None,
+                    }
+                    for s in g.student_set.all()
+                ],
+            }
+            for g in groups
+        ]
+
+        return Response(data)
+
+class LeaderboardView(generics.ListAPIView):
+    serializer_class = LeaderboardSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['groups', 'groups__course']
+
+    def get_queryset(self):
+        return Student.objects.select_related('user').prefetch_related('groups').order_by('-point')
 
 class PointTypeListCreateView(generics.ListCreateAPIView):
     queryset = PointType.objects.all().order_by('id')

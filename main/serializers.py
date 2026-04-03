@@ -390,6 +390,7 @@ class StudentSerializer(serializers.ModelSerializer):
         queryset=Group.objects.all()
     )
     book_count = serializers.SerializerMethodField()
+    rank = serializers.SerializerMethodField()
 
     class Meta:
         model = Student
@@ -397,6 +398,9 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def get_book_count(self, obj):
         return Book.objects.filter(student=obj).count()
+
+    def get_rank(self, obj):
+        return Student.objects.filter(point__gt=obj.point).count() + 1
 
 class GivePointSerializer(serializers.ModelSerializer):
     class Meta:
@@ -487,7 +491,7 @@ class GetMeSerializer(serializers.Serializer):
 class BulkPointItemSerializer(serializers.Serializer):
     student_id = serializers.IntegerField()
     point_type_id = serializers.IntegerField()
-    amount = serializers.IntegerField(min_value=1)
+    amount = serializers.IntegerField(min_value=0)
 
 class BulkSaveSerializer(serializers.Serializer):
     group_id = serializers.IntegerField()
@@ -515,6 +519,41 @@ class BulkUpdateSerializer(serializers.Serializer):
         if not items:
             raise serializers.ValidationError("Items bo'sh bo'lmasligi kerak.")
         return items
+
+class CoinHistorySerializer(serializers.ModelSerializer):
+    point_type_name = serializers.CharField(source='point_type.name', read_only=True)
+    group_name = serializers.CharField(source='group.name', read_only=True)
+    mentor_name = serializers.CharField(source='mentor.user.username', read_only=True)
+
+    class Meta:
+        model = GivePoint
+        fields = ['id', 'student', 'group_name', 'mentor_name', 'point_type_name', 'amount', 'description', 'date', 'created_at']
+
+class LeaderboardSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    full_name = serializers.SerializerMethodField()
+    groups = serializers.SerializerMethodField()
+    last_coin = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Student
+        fields = ['id', 'user', 'full_name', 'image', 'point', 'groups', 'last_coin']
+
+    def get_full_name(self, obj):
+        return f"{obj.first_name or ''} {obj.last_name or ''}".strip() or obj.user.username
+
+    def get_groups(self, obj):
+        return [{'id': g.id, 'name': g.name} for g in obj.groups.all()]
+
+    def get_last_coin(self, obj):
+        gp = GivePoint.objects.filter(student=obj).order_by('-created_at').first()
+        if not gp:
+            return None
+        return {
+            'amount': gp.amount,
+            'point_type': gp.point_type.name,
+            'date': gp.date,
+        }
 
 class PointTypeSerializer(serializers.ModelSerializer):
     class Meta:
