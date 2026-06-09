@@ -11,6 +11,11 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,7 +30,7 @@ SECRET_KEY = 'django-insecure-97z8a0j4*u!r64$*b=%vq9^_+txo*=8n^+_-$!n-&_q^%(6j-4
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -38,7 +43,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'main.apps.MainAppConfig',
+    'main',
+    'ai',
     'rest_framework',
     'rest_framework_simplejwt',
     'drf_yasg',
@@ -143,17 +149,17 @@ JAZZMIN_SETTINGS = {
     "copyright": "Codial Academy",
 
     "icons": {
-        "yourapp.UserProfile": "fas fa-user",
-        "yourapp.Course": "fas fa-book",
-        "yourapp.Mentor": "fas fa-chalkboard-teacher",
-        "yourapp.Student": "fas fa-user-graduate",
-        "yourapp.Group": "fas fa-users",
-        "yourapp.GivePoint": "fas fa-coins",
-        "yourapp.PointType": "fas fa-star",
-        "yourapp.Book": "fas fa-book-open",
-        "yourapp.New": "fas fa-newspaper",
-        "yourapp.Auction": "fas fa-gavel",
-        "yourapp.Product": "fas fa-box",
+        "main.UserProfile": "fas fa-user",
+        "main.Course": "fas fa-book",
+        "main.Mentor": "fas fa-chalkboard-teacher",
+        "main.Student": "fas fa-user-graduate",
+        "main.Group": "fas fa-users",
+        "main.GivePoint": "fas fa-coins",
+        "main.PointType": "fas fa-star",
+        "main.Book": "fas fa-book-open",
+        "main.New": "fas fa-newspaper",
+        "main.Auction": "fas fa-gavel",
+        "main.Product": "fas fa-box",
     },
 
     "navigation_expanded": True,
