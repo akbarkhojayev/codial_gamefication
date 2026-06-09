@@ -34,28 +34,55 @@ DAYKEY_UZ = {
     "sunday": "Yakshanba",
 }
 
+class UserFilter(django_filters.FilterSet):
+    class Meta:
+        model = UserProfile
+        fields = ['role']
+
 class UserListView(generics.ListAPIView):
     queryset = UserProfile.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
+    filterset_class = UserFilter
+    search_fields = ['username', 'email']
+    ordering_fields = ['id', 'username', 'email']
+    ordering = ['id']
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+class CourseFilter(django_filters.FilterSet):
+    class Meta:
+        model = Course
+        fields = ['is_active']
 
 class CourseListCreateView(generics.ListCreateAPIView):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticated]
+    filterset_class = CourseFilter
+    search_fields = ['name', 'description']
+    ordering_fields = ['id', 'name']
+    ordering = ['id']
 
 class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticated]
 
+class MentorFilter(django_filters.FilterSet):
+    class Meta:
+        model = Mentor
+        fields = ['direction']
+
 class MentorListCreateView(generics.ListAPIView):
     queryset = Mentor.objects.select_related('user')
     serializer_class = MentorSerializer
     permission_classes = [IsAuthenticated]
+    filterset_class = MentorFilter
+    search_fields = ['user__username', 'user__email', 'direction']
+    ordering_fields = ['id', 'user__username']
+    ordering = ['id']
 
 class MentorCreateView(generics.CreateAPIView):
     queryset = Mentor.objects.all()
@@ -80,10 +107,19 @@ class StudentCreateView(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
+class StudentFilter(django_filters.FilterSet):
+    class Meta:
+        model = Student
+        fields = ['groups']
+
 class StudentListView(generics.ListAPIView):
     queryset = Student.objects.select_related('user').prefetch_related('groups')
     serializer_class = StudentSerializer
     permission_classes = [IsAuthenticated]
+    filterset_class = StudentFilter
+    search_fields = ['user__username', 'user__email', 'first_name', 'last_name', 'phone_number']
+    ordering_fields = ['id', 'user__username', 'point']
+    ordering = ['id']
 
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Student.objects.select_related('user').prefetch_related('groups')
@@ -91,10 +127,19 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
+class GroupFilter(django_filters.FilterSet):
+    class Meta:
+        model = Group
+        fields = ['course', 'mentor', 'active']
+
 class GroupListCreateView(generics.ListAPIView):
     queryset = Group.objects.select_related('course', 'mentor')
     serializer_class = GroupSerializer
     permission_classes = [IsAuthenticated]
+    filterset_class = GroupFilter
+    search_fields = ['name']
+    ordering_fields = ['id', 'name', 'created_at']
+    ordering = ['-created_at']
 
 class GroupCreateView(generics.CreateAPIView):
     queryset = Group.objects.all()
@@ -106,11 +151,20 @@ class GroupDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = GroupSerializer
     permission_classes = [IsAuthenticated]
 
+class GivePointFilter(django_filters.FilterSet):
+    date_from = django_filters.DateFilter(field_name='date', lookup_expr='gte')
+    date_to = django_filters.DateFilter(field_name='date', lookup_expr='lte')
+
+    class Meta:
+        model = GivePoint
+        fields = ['student', 'group', 'mentor', 'date', 'point_type', 'date_from', 'date_to']
+
 class GivePointListCreateView(generics.ListCreateAPIView):
     serializer_class = GivePointSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['student', 'group', 'mentor', 'date', 'point_type']
+    filterset_class = GivePointFilter
+    ordering_fields = ['id', 'date', 'created_at', 'amount']
+    ordering = ['-date', '-created_at']
 
     def get_queryset(self):
         return GivePoint.objects.select_related(
@@ -124,13 +178,20 @@ class GivePointDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = GivePointSerializer
     permission_classes = [IsAuthenticated]
 
+class BookFilter(django_filters.FilterSet):
+    class Meta:
+        model = Book
+        fields = ['student', 'status']
+
 class BookListCreateView(generics.ListCreateAPIView):
     queryset = Book.objects.all()
     serializer_class = BookSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['student']
+    filterset_class = BookFilter
+    search_fields = ['title', 'author']
+    ordering_fields = ['id', 'title', 'start_date', 'end_date']
+    ordering = ['-start_date']
 
 class BookDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Book.objects.all()
@@ -138,11 +199,20 @@ class BookDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
+class NewsFilter(django_filters.FilterSet):
+    class Meta:
+        model = New
+        fields = ['pin']
+
 class NewsListCreateView(generics.ListAPIView):
     queryset = New.objects.all()
     serializer_class = NewsSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    filterset_class = NewsFilter
+    search_fields = ['title', 'description']
+    ordering_fields = ['id', 'title', 'created_at']
+    ordering = ['-pin', '-created_at']
 
 class NewCreateView(generics.CreateAPIView):
     queryset = New.objects.all()
@@ -159,21 +229,39 @@ class NewsDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
+class AuctionFilter(django_filters.FilterSet):
+    class Meta:
+        model = Auction
+        fields = ['is_active']
+
 class AuctionListCreateView(generics.ListCreateAPIView):
     queryset = Auction.objects.all()
     serializer_class = AuctionSerializer
     permission_classes = [IsAuthenticated]
+    filterset_class = AuctionFilter
+    search_fields = ['title', 'description']
+    ordering_fields = ['id', 'data', 'time']
+    ordering = ['-data']
 
 class AuctionDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Auction.objects.all()
     serializer_class = AuctionSerializer
     permission_classes = [IsAuthenticated]
 
+class ProductFilter(django_filters.FilterSet):
+    class Meta:
+        model = Product
+        fields = ['auction']
+
 class ProductListCreateView(generics.ListCreateAPIView):
     queryset = Product.objects.select_related('auction')
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    filterset_class = ProductFilter
+    search_fields = ['name', 'description']
+    ordering_fields = ['id', 'name', 'point_cost', 'amount']
+    ordering = ['id']
 
 class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Product.objects.select_related('auction')
@@ -409,8 +497,9 @@ class CoinHistoryFilter(django_filters.FilterSet):
 class CoinHistoryView(generics.ListAPIView):
     serializer_class = CoinHistorySerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
     filterset_class = CoinHistoryFilter
+    ordering_fields = ['id', 'date', 'created_at', 'amount']
+    ordering = ['-date', '-created_at']
 
     def get_queryset(self):
         return GivePoint.objects.select_related(
@@ -459,29 +548,54 @@ class ActiveGroupsView(generics.ListAPIView):
 
         return Response(data)
 
+class LeaderboardFilter(django_filters.FilterSet):
+    class Meta:
+        model = Student
+        fields = ['groups', 'groups__course']
+
 class LeaderboardView(generics.ListAPIView):
     serializer_class = LeaderboardSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['groups', 'groups__course']
+    filterset_class = LeaderboardFilter
+    search_fields = ['user__username', 'first_name', 'last_name']
+    ordering_fields = ['id', 'point']
+    ordering = ['-point']
 
     def get_queryset(self):
         return Student.objects.select_related('user').prefetch_related('groups').order_by('-point')
+
+class PointTypeFilter(django_filters.FilterSet):
+    class Meta:
+        model = PointType
+        fields = ['is_manual']
 
 class PointTypeListCreateView(generics.ListCreateAPIView):
     queryset = PointType.objects.all().order_by('id')
     serializer_class = PointTypeSerializer
     permission_classes = [IsAuthenticated]
+    filterset_class = PointTypeFilter
+    search_fields = ['name']
+    ordering_fields = ['id', 'name', 'max_point']
+    ordering = ['id']
 
 class PointTypeDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = PointType.objects.all()
     serializer_class = PointTypeSerializer
     permission_classes = [IsAuthenticated]
 
+class AdminFilter(django_filters.FilterSet):
+    class Meta:
+        model = Admin
+        fields = ['is_active']
+
 class AdminListView(generics.ListAPIView):
     queryset = Admin.objects.all()
     serializer_class = AdminSerializer
     permission_classes = [IsAuthenticated]
+    filterset_class = AdminFilter
+    search_fields = ['name', 'user__username', 'user__email']
+    ordering_fields = ['id', 'name', 'created_at']
+    ordering = ['id']
 
 class AdminCreateView(generics.CreateAPIView):
     queryset = Admin.objects.all()
