@@ -55,6 +55,13 @@ class Group(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     lesson_days = models.JSONField(default=list, blank=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['active', 'created_at']),
+            models.Index(fields=['mentor', 'created_at']),
+            models.Index(fields=['course', 'active']),
+        ]
+
     def __str__(self):
         return f"{self.name} ({self.course.name})"
 
@@ -69,6 +76,12 @@ class Student(models.Model):
     birth_date = models.DateField(blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['point']),
+            models.Index(fields=['created_at']),
+        ]
 
     def __str__(self):
         return self.user.username
@@ -165,6 +178,12 @@ class GivePoint(models.Model):
                 name='uniq_givepoint_student_group_type_date'
             )
         ]
+        indexes = [
+            models.Index(fields=['date', 'created_at']),
+            models.Index(fields=['group', 'date']),
+            models.Index(fields=['student', 'created_at']),
+            models.Index(fields=['mentor', 'date']),
+        ]
 
     def clean(self):
         if self.amount > self.point_type.max_point:
@@ -207,6 +226,11 @@ class Book(models.Model):
     status = models.CharField(max_length=20,choices=BOOK_STATUS_CHOICES, default="O'qiyapman")
     student = models.ForeignKey('Student', on_delete=models.CASCADE)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['student', 'status']),
+        ]
+
     def __str__(self):
         return self.title
 
@@ -218,6 +242,11 @@ class New(models.Model):
     user = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
     pin = models.BooleanField(default=False)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['pin', 'created_at']),
+        ]
+
     def __str__(self):
         return self.title
 
@@ -227,6 +256,11 @@ class Auction(models.Model):
     data = models.DateField()
     time = models.TimeField()
     is_active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['is_active', 'data']),
+        ]
 
     def __str__(self):
         return self.description
@@ -238,6 +272,11 @@ class Product(models.Model):
     amount = models.PositiveIntegerField(default=0)
     point_cost = models.PositiveIntegerField(default=0)
     description = models.TextField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['auction']),
+        ]
 
     def __str__(self):
         return self.name

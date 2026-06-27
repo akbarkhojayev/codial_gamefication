@@ -1,6 +1,7 @@
 from rest_framework import generics
 from django.db import transaction
-from django.db.models import F
+from django.db.models import Count, F, OuterRef, Prefetch, Subquery, Sum, Window, prefetch_related_objects
+from django.db.models.functions import Rank
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import *
 from .serializers import *
@@ -87,7 +88,6 @@ class CourseFilter(django_filters.FilterSet):
         fields = ['is_active']
 
 class CourseListCreateView(generics.ListCreateAPIView):
-    queryset = Course.objects.all()
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticated]
     filterset_class = CourseFilter
@@ -95,10 +95,23 @@ class CourseListCreateView(generics.ListCreateAPIView):
     ordering_fields = ['id', 'name']
     ordering = ['id']
 
+    def get_queryset(self):
+        return Course.objects.annotate(
+            group_count=Count('groups', distinct=True),
+            student_count=Count('groups__student', distinct=True),
+            teacher_count=Count('groups__mentor', distinct=True),
+        )
+
 class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Course.objects.all()
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Course.objects.annotate(
+            group_count=Count('groups', distinct=True),
+            student_count=Count('groups__student', distinct=True),
+            teacher_count=Count('groups__mentor', distinct=True),
+        )
 
 class MentorFilter(django_filters.FilterSet):
     class Meta:
@@ -106,13 +119,30 @@ class MentorFilter(django_filters.FilterSet):
         fields = ['direction']
 
 class MentorListCreateView(generics.ListAPIView):
-    queryset = Mentor.objects.select_related('user')
     serializer_class = MentorSerializer
     permission_classes = [IsAuthenticated]
     filterset_class = MentorFilter
     search_fields = ['user__username', 'user__email', 'direction']
     ordering_fields = ['id', 'user__username']
     ordering = ['id']
+
+    def get_queryset(self):
+        groups_qs = (
+            Group.objects
+            .select_related('course')
+            .annotate(
+                student_count=Count('student', distinct=True),
+                course_group_count=Count('course__groups', distinct=True),
+                course_student_count=Count('course__groups__student', distinct=True),
+                course_teacher_count=Count('course__groups__mentor', distinct=True),
+            )
+        )
+        return (
+            Mentor.objects
+            .select_related('user')
+            .annotate(total_students_value=Count('groups__student', distinct=True))
+            .prefetch_related(Prefetch('groups', queryset=groups_qs))
+        )
 
 class MentorCreateView(generics.CreateAPIView):
     queryset = Mentor.objects.all()
@@ -121,7 +151,6 @@ class MentorCreateView(generics.CreateAPIView):
     parser_classes = [MultiPartParser, FormParser]
 
 class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Mentor.objects.select_related('user')
     serializer_class = MentorSerializer
     parser_classes = [MultiPartParser, FormParser]
 
@@ -135,6 +164,24 @@ class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
             return MentorUpdateSerializer
         return MentorSerializer
 
+    def get_queryset(self):
+        groups_qs = (
+            Group.objects
+            .select_related('course')
+            .annotate(
+                student_count=Count('student', distinct=True),
+                course_group_count=Count('course__groups', distinct=True),
+                course_student_count=Count('course__groups__student', distinct=True),
+                course_teacher_count=Count('course__groups__mentor', distinct=True),
+            )
+        )
+        return (
+            Mentor.objects
+            .select_related('user')
+            .annotate(total_students_value=Count('groups__student', distinct=True))
+            .prefetch_related(Prefetch('groups', queryset=groups_qs))
+        )
+
 class StudentCreateView(generics.CreateAPIView):
     queryset = Student.objects.all()
     serializer_class = StudentCreateSerializer
@@ -147,7 +194,6 @@ class StudentFilter(django_filters.FilterSet):
         fields = ['groups']
 
 class StudentListView(generics.ListAPIView):
-    queryset = Student.objects.select_related('user').prefetch_related('groups')
     serializer_class = StudentSerializer
     permission_classes = [IsAuthenticated]
     filterset_class = StudentFilter
@@ -155,8 +201,18 @@ class StudentListView(generics.ListAPIView):
     ordering_fields = ['id', 'user__username', 'point']
     ordering = ['id']
 
+    def get_queryset(self):
+        return (
+            Student.objects
+            .select_related('user')
+            .prefetch_related('groups')
+            .annotate(
+                book_count_value=Count('book', distinct=True),
+                student_rank=Window(expression=Rank(), order_by=F('point').desc()),
+            )
+        )
+
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Student.objects.select_related('user').prefetch_related('groups')
     serializer_class = StudentSerializer
     parser_classes = [MultiPartParser, FormParser]
 
@@ -164,6 +220,17 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
         if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
             return [IsAuthenticated()]
         return [IsAdmin()]
+
+    def get_queryset(self):
+        return (
+            Student.objects
+            .select_related('user')
+            .prefetch_related('groups')
+            .annotate(
+                book_count_value=Count('book', distinct=True),
+                student_rank=Window(expression=Rank(), order_by=F('point').desc()),
+            )
+        )
 
 class GroupFilter(django_filters.FilterSet):
     class Meta:
@@ -179,7 +246,12 @@ class GroupListCreateView(generics.ListAPIView):
     ordering = ['-created_at']
 
     def get_queryset(self):
-        qs = Group.objects.select_related('course', 'mentor__user')
+        qs = Group.objects.select_related('course', 'mentor__user').annotate(
+            student_count=Count('student', distinct=True),
+            course_group_count=Count('course__groups', distinct=True),
+            course_student_count=Count('course__groups__student', distinct=True),
+            course_teacher_count=Count('course__groups__mentor', distinct=True),
+        )
         if self.request.user.role == 'teacher':
             mentor = _get_request_mentor(self.request.user)
             if not mentor:
@@ -211,7 +283,12 @@ class GroupDetailView(generics.RetrieveUpdateDestroyAPIView):
         return [IsAdminOrTeacher()]
 
     def get_queryset(self):
-        qs = Group.objects.select_related('course', 'mentor__user')
+        qs = Group.objects.select_related('course', 'mentor__user').annotate(
+            student_count=Count('student', distinct=True),
+            course_group_count=Count('course__groups', distinct=True),
+            course_student_count=Count('course__groups__student', distinct=True),
+            course_teacher_count=Count('course__groups__mentor', distinct=True),
+        )
         if self.request.user.role == 'teacher':
             mentor = _get_request_mentor(self.request.user)
             if not mentor:
@@ -339,12 +416,12 @@ class GivePointListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         return GivePoint.objects.select_related(
-            'mentor', 'student', 'point_type', 'group'
+            'mentor__user', 'student__user', 'point_type', 'group'
         )
 
 class GivePointDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = GivePoint.objects.select_related(
-        'mentor', 'student', 'point_type'
+        'mentor__user', 'student__user', 'point_type', 'group'
     )
     serializer_class = GivePointSerializer
     permission_classes = [IsAuthenticated]
@@ -355,7 +432,7 @@ class BookFilter(django_filters.FilterSet):
         fields = ['student', 'status']
 
 class BookListCreateView(generics.ListCreateAPIView):
-    queryset = Book.objects.all()
+    queryset = Book.objects.select_related('student__user')
     serializer_class = BookSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -365,7 +442,7 @@ class BookListCreateView(generics.ListCreateAPIView):
     ordering = ['-start_date']
 
 class BookDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Book.objects.all()
+    queryset = Book.objects.select_related('student__user')
     serializer_class = BookSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -376,7 +453,7 @@ class NewsFilter(django_filters.FilterSet):
         fields = ['pin']
 
 class NewsListCreateView(generics.ListAPIView):
-    queryset = New.objects.all()
+    queryset = New.objects.select_related('user')
     serializer_class = NewsSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -395,7 +472,7 @@ class NewCreateView(generics.CreateAPIView):
         serializer.save(user=self.request.user)
 
 class NewsDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = New.objects.all()
+    queryset = New.objects.select_related('user')
     serializer_class = NewsSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -406,7 +483,7 @@ class AuctionFilter(django_filters.FilterSet):
         fields = ['is_active']
 
 class AuctionListCreateView(generics.ListCreateAPIView):
-    queryset = Auction.objects.all()
+    queryset = Auction.objects.prefetch_related('products')
     serializer_class = AuctionSerializer
     permission_classes = [IsAuthenticated]
     filterset_class = AuctionFilter
@@ -415,7 +492,7 @@ class AuctionListCreateView(generics.ListCreateAPIView):
     ordering = ['-data']
 
 class AuctionDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Auction.objects.all()
+    queryset = Auction.objects.prefetch_related('products')
     serializer_class = AuctionSerializer
     permission_classes = [IsAuthenticated]
 
@@ -805,24 +882,31 @@ class CoinHistoryView(generics.ListAPIView):
 
     def get_queryset(self):
         return GivePoint.objects.select_related(
-            'mentor__user', 'student', 'group', 'point_type'
+            'mentor__user', 'student__user', 'group', 'point_type'
         ).order_by('-date', '-created_at')
 
 class ActiveGroupsView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def list(self, request, *args, **kwargs):
-        from django.db.models import Sum, Count
-
         groups = (
             Group.objects
-            .select_related('mentor__user')
-            .prefetch_related('student_set__user')
+            .select_related('course', 'mentor__user')
             .annotate(
                 total_coins=Sum('givepoint__amount'),
                 student_count=Count('student', distinct=True),
+                course_group_count=Count('course__groups', distinct=True),
+                course_student_count=Count('course__groups__student', distinct=True),
+                course_teacher_count=Count('course__groups__mentor', distinct=True),
             )
             .order_by('-total_coins')
+        )
+
+        page = self.paginate_queryset(groups)
+        groups_page = page if page is not None else groups
+        prefetch_related_objects(
+            groups_page,
+            Prefetch('student_set', queryset=Student.objects.select_related('user').order_by('user__username'))
         )
 
         data = [
@@ -845,9 +929,11 @@ class ActiveGroupsView(generics.ListAPIView):
                     for s in g.student_set.all()
                 ],
             }
-            for g in groups
+            for g in groups_page
         ]
 
+        if page is not None:
+            return self.get_paginated_response(data)
         return Response(data)
 
 class LeaderboardFilter(django_filters.FilterSet):
@@ -864,7 +950,18 @@ class LeaderboardView(generics.ListAPIView):
     ordering = ['-point']
 
     def get_queryset(self):
-        return Student.objects.select_related('user').prefetch_related('groups').order_by('-point')
+        last_coin = GivePoint.objects.filter(student=OuterRef('pk')).order_by('-created_at')
+        return (
+            Student.objects
+            .select_related('user')
+            .prefetch_related('groups')
+            .annotate(
+                last_coin_amount=Subquery(last_coin.values('amount')[:1]),
+                last_coin_point_type=Subquery(last_coin.values('point_type__name')[:1]),
+                last_coin_date=Subquery(last_coin.values('date')[:1]),
+            )
+            .order_by('-point')
+        )
 
 class PointTypeFilter(django_filters.FilterSet):
     class Meta:

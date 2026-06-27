@@ -11,6 +11,21 @@ from rest_framework import serializers
 from .models import Course, Student, Mentor, Group
 
 
+def _attach_course_counts_from_group(group):
+    course = getattr(group, 'course', None)
+    if not course:
+        return
+    mapping = {
+        'course_group_count': 'group_count',
+        'course_student_count': 'student_count',
+        'course_teacher_count': 'teacher_count',
+    }
+    for source, target in mapping.items():
+        value = getattr(group, source, None)
+        if value is not None:
+            setattr(course, target, value)
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
@@ -43,12 +58,21 @@ class CourseSerializer(serializers.ModelSerializer):
         ]
 
     def get_group_count(self, obj):
+        value = getattr(obj, 'group_count', None)
+        if value is not None:
+            return value
         return Group.objects.filter(course=obj).count()
 
     def get_student_count(self, obj):
+        value = getattr(obj, 'student_count', None)
+        if value is not None:
+            return value
         return Student.objects.filter(groups__course=obj).distinct().count()
 
     def get_teacher_count(self, obj):
+        value = getattr(obj, 'teacher_count', None)
+        if value is not None:
+            return value
         return Mentor.objects.filter(groups__course=obj).distinct().count()
 
 
@@ -139,7 +163,14 @@ class GroupForMentorSerializer(serializers.ModelSerializer):
         ]
 
     def get_student_count(self, obj):
+        value = getattr(obj, 'student_count', None)
+        if value is not None:
+            return value
         return Student.objects.filter(groups=obj).count()
+
+    def to_representation(self, instance):
+        _attach_course_counts_from_group(instance)
+        return super().to_representation(instance)
 
 class MentorSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -160,10 +191,13 @@ class MentorSerializer(serializers.ModelSerializer):
         ]
 
     def get_groups(self, obj):
-        groups = Group.objects.filter(mentor=obj).select_related('course')
+        groups = obj.groups.all()
         return GroupForMentorSerializer(groups, many=True, context=self.context).data
 
     def get_total_students(self, obj):
+        value = getattr(obj, 'total_students_value', None)
+        if value is not None:
+            return value
         return Student.objects.filter(groups__mentor=obj).distinct().count()
 
 class MentorUpdateSerializer(serializers.ModelSerializer):
@@ -409,7 +443,14 @@ class GroupSerializer(serializers.ModelSerializer):
         model = Group
         fields = '__all__'
     def get_student_count(self, obj):
+        value = getattr(obj, 'student_count', None)
+        if value is not None:
+            return value
         return Student.objects.filter(groups=obj).count()
+
+    def to_representation(self, instance):
+        _attach_course_counts_from_group(instance)
+        return super().to_representation(instance)
 
 class GroupCreateSerializer(serializers.ModelSerializer):
     course_id = serializers.PrimaryKeyRelatedField(
@@ -581,9 +622,15 @@ class StudentSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def get_book_count(self, obj):
+        value = getattr(obj, 'book_count_value', None)
+        if value is not None:
+            return value
         return Book.objects.filter(student=obj).count()
 
     def get_rank(self, obj):
+        value = getattr(obj, 'student_rank', None)
+        if value is not None:
+            return value
         return Student.objects.filter(point__gt=obj.point).count() + 1
 
 class GroupStudentAddSerializer(serializers.Serializer):
@@ -841,6 +888,13 @@ class LeaderboardSerializer(serializers.ModelSerializer):
         return [{'id': g.id, 'name': g.name} for g in obj.groups.all()]
 
     def get_last_coin(self, obj):
+        amount = getattr(obj, 'last_coin_amount', None)
+        if amount is not None:
+            return {
+                'amount': amount,
+                'point_type': getattr(obj, 'last_coin_point_type', None),
+                'date': getattr(obj, 'last_coin_date', None),
+            }
         gp = GivePoint.objects.filter(student=obj).order_by('-created_at').first()
         if not gp:
             return None
