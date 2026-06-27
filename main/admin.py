@@ -6,7 +6,8 @@ from django.utils.html import format_html
 from .models import (
     UserProfile, Admin, Course, Mentor, Group,
     Student, PointType, GivePoint,
-    Book, New, Auction, Product
+    Book, New, Auction, Product,
+    Attendance, StudentGroupTransferLog
 )
 
 
@@ -260,6 +261,45 @@ class GivePointAdmin(admin.ModelAdmin):
         ("Baholash", {"fields": ("point_type", "amount", "description")}),
         ("System", {"fields": ("created_at",)}),
     )
+
+
+@admin.register(Attendance)
+class AttendanceAdmin(admin.ModelAdmin):
+    list_display = ("id", "date", "group", "student", "mentor", "status", "updated_at")
+    list_filter = ("date", "status", "group", "mentor")
+    search_fields = (
+        "student__user__username",
+        "student__first_name",
+        "student__last_name",
+        "group__name",
+        "mentor__user__username",
+    )
+    autocomplete_fields = ("group", "student", "mentor")
+    readonly_fields = ("created_at", "updated_at")
+    ordering = ("-date", "group", "student__user__username")
+
+    fieldsets = (
+        ("Asosiy", {"fields": ("date", "group", "student", "mentor")}),
+        ("Davomat", {"fields": ("status", "note")}),
+        ("System", {"fields": ("created_at", "updated_at")}),
+    )
+
+
+@admin.register(StudentGroupTransferLog)
+class StudentGroupTransferLogAdmin(admin.ModelAdmin):
+    list_display = ("id", "student", "from_group", "to_group", "moved_by", "created_at")
+    list_filter = ("from_group", "to_group", "created_at")
+    search_fields = (
+        "student__user__username",
+        "student__first_name",
+        "student__last_name",
+        "from_group__name",
+        "to_group__name",
+        "moved_by__username",
+    )
+    autocomplete_fields = ("student", "from_group", "to_group", "moved_by")
+    readonly_fields = ("created_at",)
+    ordering = ("-created_at",)
 
 
 # -------------------------

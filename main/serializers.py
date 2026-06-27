@@ -3,7 +3,8 @@ from django.db import transaction
 from rest_framework.fields import SerializerMethodField
 from .models import (
     UserProfile, Course, Mentor, Group, Student,
-    PointType, GivePoint, Book, New, Auction, Product, Admin
+    PointType, GivePoint, Book, New, Auction, Product, Admin,
+    Attendance, StudentGroupTransferLog
 )
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
@@ -55,6 +56,8 @@ class MentorCreateSerializer(serializers.ModelSerializer):
     username = serializers.CharField(write_only=True)
     email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True)
+    first_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    last_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     user = UserSerializer(read_only=True)
 
@@ -65,11 +68,18 @@ class MentorCreateSerializer(serializers.ModelSerializer):
             'username',
             'email',
             'password',
+            'first_name',
+            'last_name',
+            'avatar',
+            'bio',
             'direction',
             'point_limit',
         ]
         extra_kwargs = {
             'point_limit': {'required': False},
+            'avatar': {'required': False},
+            'bio': {'required': False},
+            'direction': {'required': False},
         }
 
     def validate_username(self, value):
@@ -86,12 +96,16 @@ class MentorCreateSerializer(serializers.ModelSerializer):
         username = validated_data.pop('username')
         email = validated_data.pop('email', '')
         password = validated_data.pop('password')
+        first_name = validated_data.pop('first_name', '')
+        last_name = validated_data.pop('last_name', '')
 
         with transaction.atomic():
             user = UserProfile.objects.create_user(
                 username=username,
                 email=email,
                 password=password,
+                first_name=first_name,
+                last_name=last_name,
                 role='teacher'
             )
 
@@ -155,12 +169,16 @@ class MentorSerializer(serializers.ModelSerializer):
 class MentorUpdateSerializer(serializers.ModelSerializer):
     username = serializers.CharField(required=False)
     email = serializers.EmailField(required=False, allow_blank=True)
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = Mentor
         fields = [
             'username',
             'email',
+            'first_name',
+            'last_name',
             'bio',
             'avatar',
             'direction',
@@ -190,6 +208,8 @@ class MentorUpdateSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         username = validated_data.pop('username', None)
         email = validated_data.pop('email', None)
+        first_name = validated_data.pop('first_name', None)
+        last_name = validated_data.pop('last_name', None)
 
         with transaction.atomic():
             user = instance.user
@@ -200,6 +220,12 @@ class MentorUpdateSerializer(serializers.ModelSerializer):
             if email is not None:
                 user.email = email
                 update_fields.append('email')
+            if first_name is not None:
+                user.first_name = first_name
+                update_fields.append('first_name')
+            if last_name is not None:
+                user.last_name = last_name
+                update_fields.append('last_name')
             if update_fields:
                 user.save(update_fields=update_fields)
 
@@ -211,9 +237,25 @@ class MentorUpdateSerializer(serializers.ModelSerializer):
 
 class AdminSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    is_staff = serializers.BooleanField(source='user.is_staff', read_only=True)
+
     class Meta:
         model = Admin
-        fields = '__all__'
+        fields = [
+            'id',
+            'user',
+            'username',
+            'user_email',
+            'is_staff',
+            'name',
+            'email',
+            'description',
+            'avatar',
+            'is_active',
+            'created_at',
+        ]
 
 class AdminCreateSerializer(serializers.ModelSerializer):
     username = serializers.CharField(write_only=True)
@@ -229,6 +271,7 @@ class AdminCreateSerializer(serializers.ModelSerializer):
             'username',
             'email',
             'password',
+            'name',
             'description',
             'avatar',
             'is_active',
@@ -247,25 +290,115 @@ class AdminCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Bu email allaqachon ishlatilgan.")
         return value
 
+    def validate_name(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Name bo'sh bo'lishi mumkin emas.")
+        return value
+
     def create(self, validated_data):
         username = validated_data.pop('username')
         email = validated_data.pop('email', '')
         password = validated_data.pop('password')
 
         with transaction.atomic():
+            is_active = validated_data.get('is_active', True)
             user = UserProfile.objects.create_user(
                 username=username,
                 email=email,
                 password=password,
-                role='admin'
+                role='admin',
+                is_staff=True,
+                is_active=is_active
             )
 
             admin = Admin.objects.create(
                 user=user,
+                email=email or None,
                 **validated_data
             )
 
         return admin
+
+class AdminUpdateSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(required=False)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    password = serializers.CharField(required=False, write_only=True, allow_blank=True)
+
+    class Meta:
+        model = Admin
+        fields = [
+            'username',
+            'email',
+            'password',
+            'name',
+            'description',
+            'avatar',
+            'is_active',
+        ]
+        extra_kwargs = {
+            'name': {'required': False},
+            'description': {'required': False},
+            'avatar': {'required': False},
+            'is_active': {'required': False},
+        }
+
+    def validate_username(self, value):
+        user = self.instance.user
+        if UserProfile.objects.filter(username=value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("Bu username allaqachon band.")
+        return value
+
+    def validate_email(self, value):
+        if not value:
+            return value
+        user = self.instance.user
+        if UserProfile.objects.filter(email=value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("Bu email allaqachon ishlatilgan.")
+        return value
+
+    def validate_name(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Name bo'sh bo'lishi mumkin emas.")
+        return value
+
+    def update(self, instance, validated_data):
+        username = validated_data.pop('username', None)
+        email = validated_data.pop('email', None)
+        password = validated_data.pop('password', None)
+
+        with transaction.atomic():
+            user = instance.user
+            user_update_fields = []
+
+            if username is not None:
+                user.username = username
+                user_update_fields.append('username')
+            if email is not None:
+                user.email = email
+                user_update_fields.append('email')
+                instance.email = email or None
+            if password:
+                user.set_password(password)
+                user_update_fields.append('password')
+            if 'is_active' in validated_data:
+                user.is_active = validated_data['is_active']
+                user_update_fields.append('is_active')
+
+            if not user.is_staff:
+                user.is_staff = True
+                user_update_fields.append('is_staff')
+            if user.role != 'admin':
+                user.role = 'admin'
+                user_update_fields.append('role')
+
+            if user_update_fields:
+                user.save(update_fields=user_update_fields)
+
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+            instance.save()
+
+        return instance
 
 class GroupSerializer(serializers.ModelSerializer):
     course = CourseSerializer(read_only=True)
@@ -297,6 +430,16 @@ class GroupCreateSerializer(serializers.ModelSerializer):
         required=False
     )
 
+    VALID_LESSON_DAYS = {
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    }
+
     class Meta:
         model = Group
         fields = [
@@ -312,6 +455,31 @@ class GroupCreateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at']
 
+    def validate_name(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Group name bo'sh bo'lishi mumkin emas.")
+        return value.strip()
+
+    def validate_lesson_days(self, value):
+        invalid = [day for day in value if day not in self.VALID_LESSON_DAYS]
+        if invalid:
+            raise serializers.ValidationError(
+                f"Noto'g'ri lesson_days qiymatlari: {', '.join(invalid)}"
+            )
+        if len(value) != len(set(value)):
+            raise serializers.ValidationError("lesson_days ichida takrorlangan kunlar bo'lmasligi kerak.")
+        return value
+
+    def validate(self, attrs):
+        course = attrs.get('course')
+        mentor = attrs.get('mentor')
+
+        if course and not course.is_active:
+            raise serializers.ValidationError({"course_id": "Faol bo'lmagan kursga guruh ochib bo'lmaydi."})
+        if mentor and mentor.user.role != 'teacher':
+            raise serializers.ValidationError({"mentor_id": "Guruh mentori teacher role'da bo'lishi kerak."})
+        return attrs
+
 class StudentCreateSerializer(serializers.ModelSerializer):
     username = serializers.CharField(write_only=True)
     email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
@@ -319,7 +487,7 @@ class StudentCreateSerializer(serializers.ModelSerializer):
     groups = serializers.PrimaryKeyRelatedField(
         many=True,
         queryset=Group.objects.all(),
-        required=False
+        required=True
     )
 
     user = UserSerializer(read_only=True)
@@ -335,14 +503,10 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             'last_name',
             'image',
             'bio',
-            'point',
             'birth_date',
             'phone_number',
             'groups',
         ]
-        extra_kwargs = {
-            'point': {'required': False},
-        }
 
     def validate_username(self, value):
         if UserProfile.objects.filter(username=value).exists():
@@ -353,6 +517,26 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         if value and UserProfile.objects.filter(email=value).exists():
             raise serializers.ValidationError("Bu email allaqachon ishlatilgan.")
         return value
+
+    def validate_groups(self, value):
+        if not value:
+            raise serializers.ValidationError("Student kamida bitta guruhga biriktirilishi kerak.")
+        inactive = [group.name for group in value if not group.active]
+        if inactive:
+            raise serializers.ValidationError(
+                f"Faol bo'lmagan guruhlarga qo'shib bo'lmaydi: {', '.join(inactive)}"
+            )
+        return value
+
+    def validate_first_name(self, value):
+        if value is not None and not value.strip():
+            raise serializers.ValidationError("First name bo'sh bo'lishi mumkin emas.")
+        return value.strip() if value else value
+
+    def validate_last_name(self, value):
+        if value is not None and not value.strip():
+            raise serializers.ValidationError("Last name bo'sh bo'lishi mumkin emas.")
+        return value.strip() if value else value
 
     def create(self, validated_data):
         groups = validated_data.pop('groups', [])
@@ -401,6 +585,117 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def get_rank(self, obj):
         return Student.objects.filter(point__gt=obj.point).count() + 1
+
+class GroupStudentAddSerializer(serializers.Serializer):
+    student_id = serializers.IntegerField()
+
+    def validate_student_id(self, value):
+        if not Student.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Bunday student mavjud emas.")
+        return value
+
+class StudentGroupTransferSerializer(serializers.Serializer):
+    student_id = serializers.IntegerField()
+    from_group_id = serializers.IntegerField()
+    to_group_id = serializers.IntegerField()
+    note = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    def validate(self, attrs):
+        student = Student.objects.filter(id=attrs['student_id']).first()
+        from_group = Group.objects.filter(id=attrs['from_group_id']).first()
+        to_group = Group.objects.filter(id=attrs['to_group_id']).first()
+
+        errors = {}
+        if not student:
+            errors['student_id'] = "Bunday student mavjud emas."
+        if not from_group:
+            errors['from_group_id'] = "Bunday guruh mavjud emas."
+        if not to_group:
+            errors['to_group_id'] = "Bunday guruh mavjud emas."
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        if from_group.id == to_group.id:
+            raise serializers.ValidationError({"to_group_id": "Ko'chirish uchun boshqa guruh tanlang."})
+        if not to_group.active:
+            raise serializers.ValidationError({"to_group_id": "Faol bo'lmagan guruhga ko'chirib bo'lmaydi."})
+        if not student.groups.filter(id=from_group.id).exists():
+            raise serializers.ValidationError({"from_group_id": "Student bu guruhda mavjud emas."})
+        if student.groups.filter(id=to_group.id).exists():
+            raise serializers.ValidationError({"to_group_id": "Student bu guruhda allaqachon mavjud."})
+
+        attrs['student'] = student
+        attrs['from_group'] = from_group
+        attrs['to_group'] = to_group
+        return attrs
+
+class AttendanceItemSerializer(serializers.Serializer):
+    student_id = serializers.IntegerField()
+    status = serializers.ChoiceField(choices=Attendance.STATUS_CHOICES)
+    note = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+class AttendanceBulkSaveSerializer(serializers.Serializer):
+    group_id = serializers.IntegerField()
+    date = serializers.DateField()
+    items = AttendanceItemSerializer(many=True)
+
+    def validate_group_id(self, value):
+        if not Group.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Bunday guruh mavjud emas.")
+        return value
+
+    def validate_items(self, items):
+        if not items:
+            raise serializers.ValidationError("Davomat ro'yxati bo'sh bo'lmasligi kerak.")
+
+        seen = set()
+        duplicates = []
+        for item in items:
+            student_id = item['student_id']
+            if student_id in seen:
+                duplicates.append(student_id)
+            seen.add(student_id)
+        if duplicates:
+            raise serializers.ValidationError(
+                f"Bir student bir so'rovda takrorlanmasligi kerak: {sorted(set(duplicates))}"
+            )
+        return items
+
+class AttendanceSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+    username = serializers.CharField(source='student.user.username', read_only=True)
+    group_name = serializers.CharField(source='group.name', read_only=True)
+
+    class Meta:
+        model = Attendance
+        fields = [
+            'id',
+            'student',
+            'student_name',
+            'username',
+            'group',
+            'group_name',
+            'mentor',
+            'date',
+            'status',
+            'note',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'mentor', 'created_at', 'updated_at']
+
+    def get_student_name(self, obj):
+        return f"{obj.student.first_name or ''} {obj.student.last_name or ''}".strip() or obj.student.user.username
+
+class StudentGroupTransferLogSerializer(serializers.ModelSerializer):
+    student = StudentSerializer(read_only=True)
+    from_group = GroupSerializer(read_only=True)
+    to_group = GroupSerializer(read_only=True)
+    moved_by = UserSerializer(read_only=True)
+
+    class Meta:
+        model = StudentGroupTransferLog
+        fields = ['id', 'student', 'from_group', 'to_group', 'moved_by', 'note', 'created_at']
 
 class GivePointSerializer(serializers.ModelSerializer):
     class Meta:

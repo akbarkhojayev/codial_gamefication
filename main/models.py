@@ -73,6 +73,73 @@ class Student(models.Model):
     def __str__(self):
         return self.user.username
 
+class Attendance(models.Model):
+    STATUS_PRESENT = 'present'
+    STATUS_ABSENT = 'absent'
+    STATUS_LATE = 'late'
+    STATUS_EXCUSED = 'excused'
+
+    STATUS_CHOICES = (
+        (STATUS_PRESENT, 'Present'),
+        (STATUS_ABSENT, 'Absent'),
+        (STATUS_LATE, 'Late'),
+        (STATUS_EXCUSED, 'Excused'),
+    )
+
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='attendance_records')
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='attendance_records')
+    mentor = models.ForeignKey(Mentor, on_delete=models.SET_NULL, null=True, blank=True, related_name='attendance_records')
+    date = models.DateField(default=timezone.localdate)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PRESENT)
+    note = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['student', 'group', 'date'],
+                name='uniq_attendance_student_group_date'
+            )
+        ]
+        indexes = [
+            models.Index(fields=['group', 'date']),
+            models.Index(fields=['student', 'date']),
+        ]
+
+    def clean(self):
+        if self.group_id and self.student_id and not self.student.groups.filter(pk=self.group_id).exists():
+            raise ValidationError("Student is not in this group.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.student} - {self.group} - {self.date} - {self.status}"
+
+class StudentGroupTransferLog(models.Model):
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='group_transfer_logs')
+    from_group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name='transfer_out_logs')
+    to_group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name='transfer_in_logs')
+    moved_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='student_group_moves')
+    note = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['student', 'created_at']),
+            models.Index(fields=['from_group', 'to_group']),
+        ]
+
+    def clean(self):
+        if self.from_group_id == self.to_group_id:
+            raise ValidationError("from_group and to_group must be different.")
+
+    def __str__(self):
+        return f"{self.student} moved from {self.from_group} to {self.to_group}"
+
 class PointType(models.Model):
     name = models.CharField(max_length=200, unique=True)
     max_point = models.PositiveIntegerField(default=0)

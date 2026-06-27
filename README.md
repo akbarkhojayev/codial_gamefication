@@ -1,169 +1,174 @@
-# Codial Academy - Analytics API
+# Codial Academy - Gamification API
 
-Django REST Framework asosida qurilgan analytics API. **Ollama'siz**, faqat Django va Database bilan ishlaydi.
+Django REST Framework asosida qurilgan academy/gamification API. Loyiha student, mentor, guruh, kurs, coin/point, davomat, kitob, yangilik, auction/product va admin boshqaruv oqimlarini qamrab oladi.
 
-## ✨ Xususiyatlar
+## Xususiyatlar
 
-- ✅ **Ollama'siz** - Hech qanday AI kerak emas
-- ✅ **Tez** - Database'dan to'g'ridan-to'g'ri ma'lumot oladi
-- ✅ **Har qanday savol** - Savol tahlil qiladi va javob beradi
-- ✅ **Qidiruv** - Ism, kurs, guruh bo'yicha qidirish
-- ✅ **Analytics** - Talabalar, mentorlar, kurslar statistikasi
-- ✅ **Logging** - Barcha so'rovlarni log qiladi
-- ✅ **Django Admin** - Oson boshqarish
-- ✅ **REST API** - Swagger dokumentatsiyasi
+- JWT autentifikatsiya
+- Role-based permission: admin, teacher, student
+- Student va mentor profillari
+- Kurs va guruh boshqaruvi
+- Studentni guruhga qo'shish va guruhlar orasida ko'chirish
+- Davomat olish
+- Point/coin berish va tarixini ko'rish
+- Leaderboard va active groups
+- Admin boshqaruvi
+- Swagger dokumentatsiyasi
 
-## 🚀 Tez Boshlash
+## Tez Boshlash
 
 ### 1. Dependencies o'rnatish
+
 ```bash
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
 ### 2. Migratsiya
+
 ```bash
-python manage.py migrate
+python3 manage.py migrate
 ```
 
 ### 3. Superuser yaratish
+
 ```bash
-python manage.py createsuperuser
+python3 manage.py createsuperuser
 ```
 
 ### 4. Server ishga tushirish
+
 ```bash
-python manage.py runserver
+python3 manage.py runserver
 ```
 
-## 📚 API Endpoints
+## Asosiy Endpointlar
 
-### Health Check
-```bash
-GET /api/ai/health/
+### Auth
+
+```http
+POST /token/
+POST /token/refresh/
+GET /get/me/
 ```
 
-### Analytics (Savol bilan)
-```bash
-POST /api/ai/analytics/
+### Users/Admin
+
+```http
+GET /users/
+GET /admins/
+POST /admins/add/
+GET /admins/<id>/
+PATCH /admins/<id>/
+DELETE /admins/<id>/
+```
+
+### Courses, Mentors, Students, Groups
+
+```http
+GET /courses/
+POST /courses/
+GET /mentors/
+POST /mentors/add/
+GET /students/
+POST /students/add/
+POST /students/transfer/
+GET /groups/
+POST /groups/add/
+POST /groups/<id>/students/add/
+```
+
+### Assessment va Davomat
+
+```http
+GET /api/teacher/assessment/<group_id>/?date=YYYY-MM-DD
+POST /api/teacher/assessment/save/
+POST /api/teacher/assessment/update/
+
+GET /api/teacher/attendance/<group_id>/?date=YYYY-MM-DD
+POST /api/teacher/attendance/save/
+```
+
+### Gamification
+
+```http
+GET /points/
+POST /points/
+GET /coin-history/
+GET /leaderboard/
+GET /active-groups/
+GET /pointtypes/
+```
+
+### Content va Auction
+
+```http
+GET /books/
+GET /news/
+POST /news/add/
+GET /auctions/
+GET /products/
+```
+
+## Student Ko'chirish Misoli
+
+```http
+POST /students/transfer/
+```
+
+```json
 {
-  "question": "Eng ko'p ball to'plagan talabalar kimlar?"
+  "student_id": 1,
+  "from_group_id": 2,
+  "to_group_id": 3,
+  "note": "Frontend guruhiga o'tkazildi"
 }
 ```
 
-### Qidiruv
-```bash
-POST /api/ai/search/
+Admin istalgan guruhlar orasida ko'chira oladi. Teacher esa o'ziga biriktirilgan guruhdagi studentni boshqa faol guruhga ko'chira oladi.
+
+## Davomat Misoli
+
+```http
+POST /api/teacher/attendance/save/
+```
+
+```json
 {
-  "search": "Ali"
+  "group_id": 2,
+  "date": "2026-06-27",
+  "items": [
+    {"student_id": 1, "status": "present"},
+    {"student_id": 2, "status": "absent", "note": "Sababsiz"}
+  ]
 }
 ```
 
-### Talabalar
-```bash
-GET /api/ai/students/
-```
+Statuslar: `present`, `absent`, `late`, `excused`.
 
-### Kurslar
-```bash
-GET /api/ai/courses/
-```
+## Loyiha Strukturasi
 
-### Guruhlar
-```bash
-GET /api/ai/groups/
-```
-
-## 🎯 Qanday Ishlaydi?
-
-```
-API so'rov: "Eng ko'p ball to'plagan talabalar?"
-    ↓
-QueryAnalyzer tahlil qiladi
-    ↓
-Database'dan: SELECT * FROM student ORDER BY point DESC
-    ↓
-Javob: Top talabalar
-    ↓
-JSON formatida qaytaradi
-```
-
-## 📊 Qo'llab-quvvatlanadigan Savol Turlari
-
-- ✅ "Eng ko'p ball to'plagan talabalar?"
-- ✅ "Eng kam ball to'plagan talabalar?"
-- ✅ "Jami nechta talaba?"
-- ✅ "Talabalar ro'yxati"
-- ✅ "Mentorlar haqida"
-- ✅ "Kurslar haqida"
-- ✅ "Guruhlar haqida"
-- ✅ "Kitoblar haqida"
-- ✅ "Balllar haqida"
-- ✅ "Ali" (qidiruv)
-
-## 🔧 Konfiguratsiya
-
-Hech qanday konfiguratsiya kerak emas! Faqat Django settings.py'da database sozlamalarini tekshiring.
-
-## 📖 Loyihaning Strukturasi
-
-```
+```text
 .
-├── ai/                          # AI bo'limi
-│   ├── models.py               # QueryLog model
-│   ├── views.py                # API views
-│   ├── urls.py                 # URL routing
-│   ├── admin.py                # Admin panel
-│   ├── services/               # Business logic
-│   │   ├── query_analyzer.py   # Savol tahlili
-│   │   └── formatter.py        # Response formatting
-│   └── utils/                  # Utilities
-│       ├── validators.py       # Input validation
-│       └── dates.py            # Date utilities
-├── main/                        # Main app
-├── core/                        # Django settings
-├── requirements.txt            # Python dependencies
+├── core/              # Django settings va URL routing
+├── main/              # Asosiy domain: users, groups, points, attendance
+├── requirements.txt
 └── manage.py
 ```
 
-## 🚨 Muammolar va Yechimlar
+## Muammolar
 
-### Database error
+### Django import error
+
+Virtualenv aktivligini va dependencylar o'rnatilganini tekshiring:
+
 ```bash
-python manage.py migrate
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### Django error
+### Migration kerak bo'lsa
+
 ```bash
-python manage.py runserver --verbosity 3
+python3 manage.py migrate
 ```
-
-### Admin panel'ga kirish
-```
-http://localhost:8000/admin/
-```
-
-## 📞 Savol-Javoblar
-
-**Q: Ollama kerakmi?**
-A: Yo'q, Ollama'siz ishlaydi.
-
-**Q: Qancha tez?**
-A: Juda tez, 1-2 soniya.
-
-**Q: Qancha RAM kerak?**
-A: Minimal 2GB, tavsiya 4GB+
-
-**Q: Qancha disk kerak?**
-A: Minimal 1GB
-
-**Q: Internet kerakmi?**
-A: Yo'q, lokal ishlaydi.
-
-## 📝 Litsenziya
-
-MIT License
-
-## 🤝 Hissa Qo'shish
-
-Pull request'larni qabul qilamiz!

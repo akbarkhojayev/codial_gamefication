@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
@@ -12,7 +12,7 @@ schema_view = get_schema_view(
   openapi.Info(
      title="Codial Academy API",
      default_version='v1',
-     description="Codial Academy Analytics API - Talabalar, mentorlar, kurslar statistikasi",
+     description="Codial Academy Gamification API - talabalar, mentorlar, kurslar, guruhlar va davomat boshqaruvi",
      terms_of_service="https://www.google.com/policies/terms/",
      contact=openapi.Contact(email="contact@codial.local"),
      license=openapi.License(name="MIT License"),
@@ -39,9 +39,11 @@ urlpatterns += [
     path('mentors/<int:pk>/', MentorDetailView.as_view()),
     path('students/', StudentListView.as_view()),
     path('students/add/', StudentCreateView.as_view()),
+    path('students/transfer/', StudentGroupTransferView.as_view()),
     path('students/<int:pk>/', StudentDetailView.as_view()),
     path('groups/', GroupListCreateView.as_view()),
     path('groups/add/', GroupCreateView.as_view()),
+    path('groups/<int:pk>/students/add/', GroupStudentAddView.as_view()),
     path('groups/<int:pk>/', GroupDetailView.as_view()),
     path('points/', GivePointListCreateView.as_view()),
     path('points/<int:pk>/', GivePointDetailView.as_view()),
@@ -65,7 +67,8 @@ urlpatterns += [
     path("api/teacher/assessment/<int:pk>/", AssessmentTableView.as_view(), name="api_teacher_assessment_retrieve"),
     path("api/teacher/assessment/save/", AssessmentBulkSaveView.as_view()),
     path("api/teacher/assessment/update/", AssessmentBulkUpdateView.as_view()),
-    path("api/ai/", include("ai.urls")),
+    path("api/teacher/attendance/<int:pk>/", AttendanceTableView.as_view(), name="api_teacher_attendance_retrieve"),
+    path("api/teacher/attendance/save/", AttendanceBulkSaveView.as_view()),
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

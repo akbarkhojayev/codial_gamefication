@@ -9,6 +9,7 @@ from .permissions import *
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 from datetime import date as dt_date
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
@@ -34,6 +35,35 @@ DAYKEY_UZ = {
     "sunday": "Yakshanba",
 }
 
+def _get_request_mentor(user):
+    if not user.is_authenticated or user.role != 'teacher':
+        return None
+    return Mentor.objects.select_related('user').filter(user=user).first()
+
+def _can_manage_group(user, group):
+    if not user.is_authenticated:
+        return False
+    if user.role == 'admin':
+        return True
+    mentor = _get_request_mentor(user)
+    return bool(mentor and group.mentor_id == mentor.id)
+
+def _can_transfer_student_between_groups(user, from_group, to_group):
+    if not user.is_authenticated:
+        return False
+    if user.role == 'admin':
+        return True
+    mentor = _get_request_mentor(user)
+    return bool(mentor and from_group.mentor_id == mentor.id and to_group.active)
+
+def _group_for_management(user, group_id):
+    group = Group.objects.select_related('course', 'mentor__user').filter(pk=group_id).first()
+    if not group:
+        return None, Response({"detail": "Group not found"}, status=status.HTTP_404_NOT_FOUND)
+    if not _can_manage_group(user, group):
+        return None, Response({"detail": "You cannot manage this group"}, status=status.HTTP_403_FORBIDDEN)
+    return group, None
+
 class UserFilter(django_filters.FilterSet):
     class Meta:
         model = UserProfile
@@ -42,7 +72,7 @@ class UserFilter(django_filters.FilterSet):
 class UserListView(generics.ListAPIView):
     queryset = UserProfile.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
     filterset_class = UserFilter
     search_fields = ['username', 'email']
     ordering_fields = ['id', 'username', 'email']
@@ -87,14 +117,18 @@ class MentorListCreateView(generics.ListAPIView):
 class MentorCreateView(generics.CreateAPIView):
     queryset = Mentor.objects.all()
     serializer_class = MentorCreateSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
     parser_classes = [MultiPartParser, FormParser]
 
 class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Mentor.objects.select_related('user')
     serializer_class = MentorSerializer
-    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [IsAuthenticated()]
+        return [IsAdmin()]
 
     def get_serializer_class(self):
         if self.request.method in ('PUT', 'PATCH'):
@@ -104,7 +138,7 @@ class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
 class StudentCreateView(generics.CreateAPIView):
     queryset = Student.objects.all()
     serializer_class = StudentCreateSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
     parser_classes = [MultiPartParser, FormParser]
 
 class StudentFilter(django_filters.FilterSet):
@@ -124,8 +158,12 @@ class StudentListView(generics.ListAPIView):
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Student.objects.select_related('user').prefetch_related('groups')
     serializer_class = StudentSerializer
-    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [IsAuthenticated()]
+        return [IsAdmin()]
 
 class GroupFilter(django_filters.FilterSet):
     class Meta:
@@ -133,7 +171,6 @@ class GroupFilter(django_filters.FilterSet):
         fields = ['course', 'mentor', 'active']
 
 class GroupListCreateView(generics.ListAPIView):
-    queryset = Group.objects.select_related('course', 'mentor')
     serializer_class = GroupSerializer
     permission_classes = [IsAuthenticated]
     filterset_class = GroupFilter
@@ -141,15 +178,149 @@ class GroupListCreateView(generics.ListAPIView):
     ordering_fields = ['id', 'name', 'created_at']
     ordering = ['-created_at']
 
+    def get_queryset(self):
+        qs = Group.objects.select_related('course', 'mentor__user')
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                return qs.none()
+            return qs.filter(mentor=mentor)
+        return qs
+
 class GroupCreateView(generics.CreateAPIView):
     queryset = Group.objects.all()
     serializer_class = GroupCreateSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrTeacher]
+
+    def perform_create(self, serializer):
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                raise PermissionDenied("Teacher profile not found")
+            serializer.save(mentor=mentor)
+            return
+        serializer.save()
 
 class GroupDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Group.objects.select_related('course', 'mentor')
     serializer_class = GroupSerializer
-    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [IsAuthenticated()]
+        return [IsAdminOrTeacher()]
+
+    def get_queryset(self):
+        qs = Group.objects.select_related('course', 'mentor__user')
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                return qs.none()
+            return qs.filter(mentor=mentor)
+        return qs
+
+    def get_serializer_class(self):
+        if self.request.method in ('PUT', 'PATCH'):
+            return GroupCreateSerializer
+        return GroupSerializer
+
+    def perform_update(self, serializer):
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                raise PermissionDenied("Teacher profile not found")
+            serializer.save(mentor=mentor)
+            return
+        serializer.save()
+
+class GroupStudentAddView(generics.GenericAPIView):
+    permission_classes = [IsAdminOrTeacher]
+    serializer_class = GroupStudentAddSerializer
+
+    def post(self, request, pk, *args, **kwargs):
+        group, error = _group_for_management(request.user, pk)
+        if error:
+            return error
+
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        student = Student.objects.select_related('user').prefetch_related('groups').get(
+            pk=ser.validated_data['student_id']
+        )
+
+        if student.groups.filter(pk=group.pk).exists():
+            return Response(
+                {"detail": "Student bu guruhda allaqachon mavjud."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not group.active:
+            return Response(
+                {"detail": "Faol bo'lmagan guruhga student qo'shib bo'lmaydi."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        student.groups.add(group)
+        student = Student.objects.select_related('user').prefetch_related('groups').get(pk=student.pk)
+        return Response(StudentSerializer(student, context=self.get_serializer_context()).data, status=status.HTTP_200_OK)
+
+class StudentGroupTransferView(generics.GenericAPIView):
+    permission_classes = [IsAdminOrTeacher]
+    serializer_class = StudentGroupTransferSerializer
+
+    def post(self, request, *args, **kwargs):
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+
+        student = ser.validated_data['student']
+        from_group = ser.validated_data['from_group']
+        to_group = ser.validated_data['to_group']
+
+        if not _can_transfer_student_between_groups(request.user, from_group, to_group):
+            return Response(
+                {"detail": "Teacher faqat o'z guruhidagi studentni faol guruhga ko'chira oladi."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        with transaction.atomic():
+            locked_student = Student.objects.select_for_update().get(pk=student.pk)
+            if not locked_student.groups.filter(pk=from_group.pk).exists():
+                return Response(
+                    {"detail": "Student bu guruhda mavjud emas."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if locked_student.groups.filter(pk=to_group.pk).exists():
+                return Response(
+                    {"detail": "Student yangi guruhda allaqachon mavjud."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            locked_student.groups.remove(from_group)
+            locked_student.groups.add(to_group)
+            transfer_log = StudentGroupTransferLog.objects.create(
+                student=locked_student,
+                from_group=from_group,
+                to_group=to_group,
+                moved_by=request.user,
+                note=ser.validated_data.get('note') or None,
+            )
+
+        transfer_log = (
+            StudentGroupTransferLog.objects
+            .select_related(
+                'student__user',
+                'from_group__course',
+                'from_group__mentor__user',
+                'to_group__course',
+                'to_group__mentor__user',
+                'moved_by',
+            )
+            .prefetch_related('student__groups')
+            .get(pk=transfer_log.pk)
+        )
+        return Response(
+            StudentGroupTransferLogSerializer(transfer_log, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK
+        )
 
 class GivePointFilter(django_filters.FilterSet):
     date_from = django_filters.DateFilter(field_name='date', lookup_expr='gte')
@@ -283,7 +454,9 @@ class AssessmentTableView(generics.RetrieveAPIView):
     def retrieve(self, request, *args, **kwargs):
         group: Group = self.get_object()
 
-        mentor = Mentor.objects.select_related("user").get(user=request.user)
+        mentor = _get_request_mentor(request.user)
+        if not mentor:
+            return Response({"detail": "Teacher profile not found"}, status=status.HTTP_403_FORBIDDEN)
         if group.mentor_id != mentor.id:
             return Response({"detail": "Group not found or not yours"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -356,6 +529,131 @@ class AssessmentTableView(generics.RetrieveAPIView):
             "rows": rows,
         })
 
+class AttendanceTableView(generics.RetrieveAPIView):
+    permission_classes = [IsAdminOrTeacher]
+    queryset = Group.objects.select_related("course", "mentor__user")
+    lookup_field = "pk"
+
+    def retrieve(self, request, *args, **kwargs):
+        group: Group = self.get_object()
+        if not _can_manage_group(request.user, group):
+            return Response({"detail": "Group not found or not yours"}, status=status.HTTP_404_NOT_FOUND)
+
+        d = request.query_params.get("date")
+        the_date = timezone.localdate()
+        if d:
+            try:
+                the_date = dt_date.fromisoformat(d)
+            except ValueError:
+                return Response({"detail": "Invalid date format. Use YYYY-MM-DD"}, status=status.HTTP_400_BAD_REQUEST)
+
+        students = (
+            Student.objects
+            .filter(groups=group)
+            .select_related("user")
+            .order_by("user__username")
+        )
+        attendance_map = {
+            record.student_id: record
+            for record in Attendance.objects.filter(group=group, date=the_date, student__in=students)
+        }
+
+        rows = []
+        for student in students:
+            record = attendance_map.get(student.id)
+            rows.append({
+                "student_id": student.id,
+                "username": student.user.username,
+                "full_name": f"{student.first_name or ''} {student.last_name or ''}".strip() or student.user.username,
+                "image": student.image.url if student.image else None,
+                "attendance": {
+                    "id": record.id if record else None,
+                    "status": record.status if record else None,
+                    "note": record.note if record else None,
+                    "updated_at": record.updated_at if record else None,
+                },
+            })
+
+        return Response({
+            "group": {
+                "id": group.id,
+                "name": group.name,
+                "course": group.course.name,
+            },
+            "date": {
+                "value": the_date.isoformat(),
+                "weekday": WEEKDAY_UZ[the_date.weekday()],
+            },
+            "lesson_days": [DAYKEY_UZ.get(x, x) for x in (group.lesson_days or [])],
+            "statuses": [
+                {"value": value, "label": label}
+                for value, label in Attendance.STATUS_CHOICES
+            ],
+            "rows": rows,
+        })
+
+class AttendanceBulkSaveView(generics.CreateAPIView):
+    permission_classes = [IsAdminOrTeacher]
+    serializer_class = AttendanceBulkSaveSerializer
+
+    def create(self, request, *args, **kwargs):
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+
+        group, error = _group_for_management(request.user, ser.validated_data["group_id"])
+        if error:
+            return error
+
+        mentor = group.mentor
+        the_date = ser.validated_data["date"]
+        items = ser.validated_data["items"]
+        student_ids = {item["student_id"] for item in items}
+        students_in_group = set(
+            Student.objects
+            .filter(groups=group, id__in=student_ids)
+            .values_list("id", flat=True)
+        )
+
+        missing = sorted(student_ids - students_in_group)
+        if missing:
+            return Response(
+                {
+                    "detail": "Davomat faqat guruhdagi studentlar uchun olinadi.",
+                    "student_ids": missing,
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        saved_ids = []
+        with transaction.atomic():
+            for item in items:
+                obj, _ = Attendance.objects.update_or_create(
+                    group=group,
+                    student_id=item["student_id"],
+                    date=the_date,
+                    defaults={
+                        "mentor": mentor,
+                        "status": item["status"],
+                        "note": item.get("note") or None,
+                    },
+                )
+                saved_ids.append(obj.id)
+
+        records = (
+            Attendance.objects
+            .filter(id__in=saved_ids)
+            .select_related("student__user", "group", "mentor__user")
+            .order_by("student__user__username")
+        )
+        return Response(
+            {
+                "saved": len(saved_ids),
+                "date": the_date.isoformat(),
+                "records": AttendanceSerializer(records, many=True, context=self.get_serializer_context()).data,
+            },
+            status=status.HTTP_200_OK
+        )
+
 class AssessmentBulkSaveView(generics.CreateAPIView):
     permission_classes = [IsTeacher]
     serializer_class = BulkSaveSerializer
@@ -368,7 +666,9 @@ class AssessmentBulkSaveView(generics.CreateAPIView):
         the_date = ser.validated_data["date"]
         items = ser.validated_data["items"]
 
-        mentor = Mentor.objects.select_related("user").get(user=request.user)
+        mentor = _get_request_mentor(request.user)
+        if not mentor:
+            return Response({"detail": "Teacher profile not found"}, status=status.HTTP_403_FORBIDDEN)
 
         group = (
             Group.objects
@@ -436,7 +736,9 @@ class AssessmentBulkUpdateView(generics.UpdateAPIView):
         ser.is_valid(raise_exception=True)
         items = ser.validated_data["items"]
 
-        mentor = Mentor.objects.select_related("user").get(user=request.user)
+        mentor = _get_request_mentor(request.user)
+        if not mentor:
+            return Response({"detail": "Teacher profile not found"}, status=status.HTTP_403_FORBIDDEN)
 
         givepoint_ids = [i["givepoint_id"] for i in items]
         givepoints = {
@@ -589,21 +891,39 @@ class AdminFilter(django_filters.FilterSet):
         fields = ['is_active']
 
 class AdminListView(generics.ListAPIView):
-    queryset = Admin.objects.all()
+    queryset = Admin.objects.select_related('user')
     serializer_class = AdminSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
     filterset_class = AdminFilter
     search_fields = ['name', 'user__username', 'user__email']
     ordering_fields = ['id', 'name', 'created_at']
     ordering = ['id']
 
 class AdminCreateView(generics.CreateAPIView):
-    queryset = Admin.objects.all()
+    queryset = Admin.objects.select_related('user')
     serializer_class = AdminCreateSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
     parser_classes = [MultiPartParser, FormParser]
 
 class AdminDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Admin.objects.all()
+    queryset = Admin.objects.select_related('user')
     serializer_class = AdminSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_serializer_class(self):
+        if self.request.method in ('PUT', 'PATCH'):
+            return AdminUpdateSerializer
+        return AdminSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.user_id == request.user.id:
+            return Response(
+                {"detail": "O'zingizning admin profilingizni o'chira olmaysiz."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        user = instance.user
+        self.perform_destroy(instance)
+        user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
