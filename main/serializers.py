@@ -567,6 +567,16 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 f"Faol bo'lmagan guruhlarga qo'shib bo'lmaydi: {', '.join(inactive)}"
             )
+        request = self.context.get('request')
+        if request and request.user.is_authenticated and request.user.role == 'teacher':
+            mentor = Mentor.objects.filter(user=request.user).first()
+            if not mentor:
+                raise serializers.ValidationError("Teacher profile topilmadi.")
+            wrong_groups = [group.name for group in value if group.mentor_id != mentor.id]
+            if wrong_groups:
+                raise serializers.ValidationError(
+                    f"Teacher faqat o'z guruhlariga student qo'sha oladi: {', '.join(wrong_groups)}"
+                )
         return value
 
     def validate_first_name(self, value):
@@ -621,6 +631,26 @@ class StudentSerializer(serializers.ModelSerializer):
         model = Student
         fields = '__all__'
 
+    def validate_groups(self, value):
+        request = self.context.get('request')
+        if not value:
+            raise serializers.ValidationError("Student kamida bitta guruhga biriktirilishi kerak.")
+        inactive = [group.name for group in value if not group.active]
+        if inactive:
+            raise serializers.ValidationError(
+                f"Faol bo'lmagan guruhlarga qo'shib bo'lmaydi: {', '.join(inactive)}"
+            )
+        if request and request.user.is_authenticated and request.user.role == 'teacher':
+            mentor = Mentor.objects.filter(user=request.user).first()
+            if not mentor:
+                raise serializers.ValidationError("Teacher profile topilmadi.")
+            wrong_groups = [group.name for group in value if group.mentor_id != mentor.id]
+            if wrong_groups:
+                raise serializers.ValidationError(
+                    f"Teacher studentni faqat o'z guruhlariga biriktira oladi: {', '.join(wrong_groups)}"
+                )
+        return value
+
     def get_book_count(self, obj):
         value = getattr(obj, 'book_count_value', None)
         if value is not None:
@@ -634,6 +664,15 @@ class StudentSerializer(serializers.ModelSerializer):
         return Student.objects.filter(point__gt=obj.point).count() + 1
 
 class GroupStudentAddSerializer(serializers.Serializer):
+    student_id = serializers.IntegerField()
+
+    def validate_student_id(self, value):
+        if not Student.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Bunday student mavjud emas.")
+        return value
+
+
+class GroupStudentRemoveSerializer(serializers.Serializer):
     student_id = serializers.IntegerField()
 
     def validate_student_id(self, value):
@@ -748,21 +787,57 @@ class GivePointSerializer(serializers.ModelSerializer):
     class Meta:
         model = GivePoint
         fields = '__all__'
+        extra_kwargs = {
+            'mentor': {'required': False},
+        }
 
     def validate(self, data):
-        mentor = data['mentor']
-        amount = data['amount']
-        point_type = data.get('point_type')
+        request = self.context.get('request')
+        instance = getattr(self, 'instance', None)
+
+        mentor = data.get('mentor') or (instance.mentor if instance else None)
+        student = data.get('student') or (instance.student if instance else None)
+        group = data.get('group') or (instance.group if instance else None)
+        point_type = data.get('point_type') or (instance.point_type if instance else None)
+        amount = data.get('amount', instance.amount if instance else None)
+
+        if request and request.user.is_authenticated and request.user.role == 'teacher':
+            mentor = Mentor.objects.filter(user=request.user).first()
+            if not mentor:
+                raise serializers.ValidationError("Teacher profile topilmadi.")
+            data['mentor'] = mentor
+
+        if not mentor:
+            raise serializers.ValidationError({"mentor": "Mentor majburiy."})
+        if not student:
+            raise serializers.ValidationError({"student": "Student majburiy."})
+        if not group:
+            raise serializers.ValidationError({"group": "Group majburiy."})
+        if not point_type:
+            raise serializers.ValidationError({"point_type": "Point type majburiy."})
+        if amount is None:
+            raise serializers.ValidationError({"amount": "Amount majburiy."})
 
         if amount <= 0:
             raise serializers.ValidationError("Amount 0 dan katta bo‘lishi kerak.")
 
-        if point_type and amount > point_type.max_point:
+        if amount > point_type.max_point:
             raise serializers.ValidationError(
                 {'amount': f"Bu point type uchun maksimal qiymat {point_type.max_point}"}
             )
 
-        if amount > mentor.point_limit:
+        if request and request.user.is_authenticated and request.user.role == 'teacher':
+            if group.mentor_id != mentor.id:
+                raise serializers.ValidationError({"group": "Teacher faqat o'z guruhiga point bera oladi."})
+
+        if not student.groups.filter(pk=group.pk).exists():
+            raise serializers.ValidationError({"student": "Student tanlangan guruhda mavjud emas."})
+
+        required_limit = amount
+        if instance:
+            required_limit = amount - instance.amount
+
+        if required_limit > mentor.point_limit:
             raise serializers.ValidationError(
                 {'amount': f"Mentorda faqat {mentor.point_limit} point qolgan"}
             )

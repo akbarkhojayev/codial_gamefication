@@ -44,6 +44,8 @@ urlpatterns += [
     path('groups/', GroupListCreateView.as_view()),
     path('groups/add/', GroupCreateView.as_view()),
     path('groups/<int:pk>/students/add/', GroupStudentAddView.as_view()),
+    path('groups/<int:pk>/students/remove/', GroupStudentRemoveView.as_view()),
+    path('groups/<int:pk>/students/<int:student_id>/remove/', GroupStudentRemoveView.as_view()),
     path('groups/<int:pk>/', GroupDetailView.as_view()),
     path('points/', GivePointListCreateView.as_view()),
     path('points/<int:pk>/', GivePointDetailView.as_view()),

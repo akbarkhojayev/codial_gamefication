@@ -55,7 +55,12 @@ def _can_transfer_student_between_groups(user, from_group, to_group):
     if user.role == 'admin':
         return True
     mentor = _get_request_mentor(user)
-    return bool(mentor and from_group.mentor_id == mentor.id and to_group.active)
+    return bool(
+        mentor
+        and from_group.mentor_id == mentor.id
+        and to_group.mentor_id == mentor.id
+        and to_group.active
+    )
 
 def _group_for_management(user, group_id):
     group = Group.objects.select_related('course', 'mentor__user').filter(pk=group_id).first()
@@ -185,7 +190,7 @@ class MentorDetailView(generics.RetrieveUpdateDestroyAPIView):
 class StudentCreateView(generics.CreateAPIView):
     queryset = Student.objects.all()
     serializer_class = StudentCreateSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrTeacher]
     parser_classes = [MultiPartParser, FormParser]
 
 class StudentFilter(django_filters.FilterSet):
@@ -202,7 +207,7 @@ class StudentListView(generics.ListAPIView):
     ordering = ['id']
 
     def get_queryset(self):
-        return (
+        qs = (
             Student.objects
             .select_related('user')
             .prefetch_related('groups')
@@ -211,6 +216,12 @@ class StudentListView(generics.ListAPIView):
                 student_rank=Window(expression=Rank(), order_by=F('point').desc()),
             )
         )
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                return qs.none()
+            return qs.filter(groups__mentor=mentor).distinct()
+        return qs
 
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = StudentSerializer
@@ -219,10 +230,12 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_permissions(self):
         if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
             return [IsAuthenticated()]
+        if self.request.method in ('PUT', 'PATCH'):
+            return [IsAdminOrTeacher()]
         return [IsAdmin()]
 
     def get_queryset(self):
-        return (
+        qs = (
             Student.objects
             .select_related('user')
             .prefetch_related('groups')
@@ -231,6 +244,12 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
                 student_rank=Window(expression=Rank(), order_by=F('point').desc()),
             )
         )
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                return qs.none()
+            return qs.filter(groups__mentor=mentor).distinct()
+        return qs
 
 class GroupFilter(django_filters.FilterSet):
     class Meta:
@@ -340,6 +359,47 @@ class GroupStudentAddView(generics.GenericAPIView):
         student = Student.objects.select_related('user').prefetch_related('groups').get(pk=student.pk)
         return Response(StudentSerializer(student, context=self.get_serializer_context()).data, status=status.HTTP_200_OK)
 
+class GroupStudentRemoveView(generics.GenericAPIView):
+    permission_classes = [IsAdminOrTeacher]
+    serializer_class = GroupStudentRemoveSerializer
+
+    def _remove(self, request, pk, student_id=None):
+        group, error = _group_for_management(request.user, pk)
+        if error:
+            return error
+
+        data = request.data.copy()
+        if student_id is not None:
+            data['student_id'] = student_id
+
+        ser = self.get_serializer(data=data)
+        ser.is_valid(raise_exception=True)
+        student = Student.objects.select_related('user').prefetch_related('groups').get(
+            pk=ser.validated_data['student_id']
+        )
+
+        if not student.groups.filter(pk=group.pk).exists():
+            return Response(
+                {"detail": "Student bu guruhda mavjud emas."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        student.groups.remove(group)
+        student = Student.objects.select_related('user').prefetch_related('groups').get(pk=student.pk)
+        return Response(
+            {
+                "detail": "Student guruhdan olib tashlandi.",
+                "student": StudentSerializer(student, context=self.get_serializer_context()).data,
+            },
+            status=status.HTTP_200_OK
+        )
+
+    def post(self, request, pk, student_id=None, *args, **kwargs):
+        return self._remove(request, pk, student_id)
+
+    def delete(self, request, pk, student_id=None, *args, **kwargs):
+        return self._remove(request, pk, student_id)
+
 class StudentGroupTransferView(generics.GenericAPIView):
     permission_classes = [IsAdminOrTeacher]
     serializer_class = StudentGroupTransferSerializer
@@ -354,7 +414,7 @@ class StudentGroupTransferView(generics.GenericAPIView):
 
         if not _can_transfer_student_between_groups(request.user, from_group, to_group):
             return Response(
-                {"detail": "Teacher faqat o'z guruhidagi studentni faol guruhga ko'chira oladi."},
+                {"detail": "Teacher faqat o'z guruhlari orasida studentni ko'chira oladi."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -409,22 +469,54 @@ class GivePointFilter(django_filters.FilterSet):
 
 class GivePointListCreateView(generics.ListCreateAPIView):
     serializer_class = GivePointSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrTeacher]
     filterset_class = GivePointFilter
     ordering_fields = ['id', 'date', 'created_at', 'amount']
     ordering = ['-date', '-created_at']
 
     def get_queryset(self):
-        return GivePoint.objects.select_related(
+        qs = GivePoint.objects.select_related(
             'mentor__user', 'student__user', 'point_type', 'group'
         )
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                return qs.none()
+            return qs.filter(mentor=mentor, group__mentor=mentor)
+        return qs
+
+    def perform_create(self, serializer):
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                raise PermissionDenied("Teacher profile not found")
+            serializer.save(mentor=mentor)
+            return
+        serializer.save()
 
 class GivePointDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = GivePoint.objects.select_related(
-        'mentor__user', 'student__user', 'point_type', 'group'
-    )
     serializer_class = GivePointSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrTeacher]
+
+    def get_queryset(self):
+        qs = GivePoint.objects.select_related(
+            'mentor__user', 'student__user', 'point_type', 'group'
+        )
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                return qs.none()
+            return qs.filter(mentor=mentor, group__mentor=mentor)
+        return qs
+
+    def perform_update(self, serializer):
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                raise PermissionDenied("Teacher profile not found")
+            serializer.save(mentor=mentor)
+            return
+        serializer.save()
 
 class BookFilter(django_filters.FilterSet):
     class Meta:
@@ -881,9 +973,17 @@ class CoinHistoryView(generics.ListAPIView):
     ordering = ['-date', '-created_at']
 
     def get_queryset(self):
-        return GivePoint.objects.select_related(
+        qs = GivePoint.objects.select_related(
             'mentor__user', 'student__user', 'group', 'point_type'
         ).order_by('-date', '-created_at')
+        if self.request.user.role == 'teacher':
+            mentor = _get_request_mentor(self.request.user)
+            if not mentor:
+                return qs.none()
+            return qs.filter(mentor=mentor, group__mentor=mentor)
+        if self.request.user.role == 'student':
+            return qs.filter(student__user=self.request.user)
+        return qs
 
 class ActiveGroupsView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
