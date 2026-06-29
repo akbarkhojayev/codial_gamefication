@@ -363,16 +363,12 @@ class GroupStudentRemoveView(generics.GenericAPIView):
     permission_classes = [IsAdminOrTeacher]
     serializer_class = GroupStudentRemoveSerializer
 
-    def _remove(self, request, pk, student_id=None):
+    def delete(self, request, pk, student_id, *args, **kwargs):
         group, error = _group_for_management(request.user, pk)
         if error:
             return error
 
-        data = request.data.copy()
-        if student_id is not None:
-            data['student_id'] = student_id
-
-        ser = self.get_serializer(data=data)
+        ser = self.get_serializer(data={'student_id': student_id})
         ser.is_valid(raise_exception=True)
         student = Student.objects.select_related('user').prefetch_related('groups').get(
             pk=ser.validated_data['student_id']
@@ -393,12 +389,6 @@ class GroupStudentRemoveView(generics.GenericAPIView):
             },
             status=status.HTTP_200_OK
         )
-
-    def post(self, request, pk, student_id=None, *args, **kwargs):
-        return self._remove(request, pk, student_id)
-
-    def delete(self, request, pk, student_id=None, *args, **kwargs):
-        return self._remove(request, pk, student_id)
 
 class StudentGroupTransferView(generics.GenericAPIView):
     permission_classes = [IsAdminOrTeacher]
