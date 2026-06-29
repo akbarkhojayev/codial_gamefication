@@ -1,7 +1,7 @@
 from rest_framework import generics
 from django.db import transaction
-from django.db.models import Count, F, OuterRef, Prefetch, Subquery, Sum, Window, prefetch_related_objects
-from django.db.models.functions import Rank
+from django.db.models import Count, F, IntegerField, OuterRef, Prefetch, Subquery, Sum, Value, Window, prefetch_related_objects
+from django.db.models.functions import Coalesce, Rank
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import *
 from .serializers import *
@@ -979,17 +979,26 @@ class ActiveGroupsView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def list(self, request, *args, **kwargs):
+        group_coin_total = (
+            GivePoint.objects
+            .filter(group=OuterRef('pk'))
+            .order_by()
+            .values('group')
+            .annotate(total=Sum('amount'))
+            .values('total')
+        )
+
         groups = (
             Group.objects
             .select_related('course', 'mentor__user')
             .annotate(
-                total_coins=Sum('givepoint__amount'),
+                total_coins=Coalesce(
+                    Subquery(group_coin_total, output_field=IntegerField()),
+                    Value(0),
+                ),
                 student_count=Count('student', distinct=True),
-                course_group_count=Count('course__groups', distinct=True),
-                course_student_count=Count('course__groups__student', distinct=True),
-                course_teacher_count=Count('course__groups__mentor', distinct=True),
             )
-            .order_by('-total_coins')
+            .order_by('-total_coins', 'id')
         )
 
         page = self.paginate_queryset(groups)
