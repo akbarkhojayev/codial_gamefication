@@ -26,6 +26,47 @@ def _attach_course_counts_from_group(group):
             setattr(course, target, value)
 
 
+def _apply_file_alias(validated_data, primary, *aliases):
+    alias_values = [validated_data.pop(alias, None) for alias in aliases]
+    if validated_data.get(primary):
+        return
+    for value in alias_values:
+        if value:
+            validated_data[primary] = value
+            return
+
+
+def _normalize_many_ids(value):
+    if value in (None, ''):
+        return value
+    if isinstance(value, str):
+        value = value.strip()
+        if value.startswith('[') and value.endswith(']'):
+            value = value[1:-1]
+        return [item.strip() for item in value.split(',') if item.strip()]
+    return value
+
+
+def _normalize_groups_input(data):
+    if not hasattr(data, 'copy'):
+        return data
+    mutable = data.copy()
+    if hasattr(data, 'getlist'):
+        groups = data.getlist('groups')
+        if len(groups) == 1:
+            groups = _normalize_many_ids(groups[0])
+        if groups:
+            mutable.setlist('groups', groups if isinstance(groups, list) else [groups])
+            return mutable
+    if 'groups' in mutable:
+        groups = _normalize_many_ids(mutable.get('groups'))
+        if isinstance(groups, list) and hasattr(mutable, 'setlist'):
+            mutable.setlist('groups', groups)
+        else:
+            mutable['groups'] = groups
+    return mutable
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
@@ -82,6 +123,7 @@ class MentorCreateSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
     first_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
     last_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    image = serializers.ImageField(write_only=True, required=False, allow_null=True)
 
     user = UserSerializer(read_only=True)
 
@@ -95,6 +137,7 @@ class MentorCreateSerializer(serializers.ModelSerializer):
             'first_name',
             'last_name',
             'avatar',
+            'image',
             'bio',
             'direction',
             'point_limit',
@@ -122,6 +165,7 @@ class MentorCreateSerializer(serializers.ModelSerializer):
         password = validated_data.pop('password')
         first_name = validated_data.pop('first_name', '')
         last_name = validated_data.pop('last_name', '')
+        _apply_file_alias(validated_data, 'avatar', 'image')
 
         with transaction.atomic():
             user = UserProfile.objects.create_user(
@@ -205,6 +249,7 @@ class MentorUpdateSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=False, allow_blank=True)
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
+    image = serializers.ImageField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = Mentor
@@ -215,6 +260,7 @@ class MentorUpdateSerializer(serializers.ModelSerializer):
             'last_name',
             'bio',
             'avatar',
+            'image',
             'direction',
             'point_limit',
         ]
@@ -244,6 +290,7 @@ class MentorUpdateSerializer(serializers.ModelSerializer):
         email = validated_data.pop('email', None)
         first_name = validated_data.pop('first_name', None)
         last_name = validated_data.pop('last_name', None)
+        _apply_file_alias(validated_data, 'avatar', 'image')
 
         with transaction.atomic():
             user = instance.user
@@ -295,6 +342,7 @@ class AdminCreateSerializer(serializers.ModelSerializer):
     username = serializers.CharField(write_only=True)
     email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True)
+    image = serializers.ImageField(write_only=True, required=False, allow_null=True)
 
     user = UserSerializer(read_only=True)
 
@@ -308,6 +356,7 @@ class AdminCreateSerializer(serializers.ModelSerializer):
             'name',
             'description',
             'avatar',
+            'image',
             'is_active',
         ]
         extra_kwargs = {
@@ -333,6 +382,7 @@ class AdminCreateSerializer(serializers.ModelSerializer):
         username = validated_data.pop('username')
         email = validated_data.pop('email', '')
         password = validated_data.pop('password')
+        _apply_file_alias(validated_data, 'avatar', 'image')
 
         with transaction.atomic():
             is_active = validated_data.get('is_active', True)
@@ -357,6 +407,7 @@ class AdminUpdateSerializer(serializers.ModelSerializer):
     username = serializers.CharField(required=False)
     email = serializers.EmailField(required=False, allow_blank=True)
     password = serializers.CharField(required=False, write_only=True, allow_blank=True)
+    image = serializers.ImageField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = Admin
@@ -367,6 +418,7 @@ class AdminUpdateSerializer(serializers.ModelSerializer):
             'name',
             'description',
             'avatar',
+            'image',
             'is_active',
         ]
         extra_kwargs = {
@@ -399,6 +451,7 @@ class AdminUpdateSerializer(serializers.ModelSerializer):
         username = validated_data.pop('username', None)
         email = validated_data.pop('email', None)
         password = validated_data.pop('password', None)
+        _apply_file_alias(validated_data, 'avatar', 'image')
 
         with transaction.atomic():
             user = instance.user
@@ -530,6 +583,7 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         queryset=Group.objects.all(),
         required=True
     )
+    avatar = serializers.ImageField(write_only=True, required=False, allow_null=True)
 
     user = UserSerializer(read_only=True)
 
@@ -543,11 +597,15 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             'first_name',
             'last_name',
             'image',
+            'avatar',
             'bio',
             'birth_date',
             'phone_number',
             'groups',
         ]
+
+    def to_internal_value(self, data):
+        return super().to_internal_value(_normalize_groups_input(data))
 
     def validate_username(self, value):
         if UserProfile.objects.filter(username=value).exists():
@@ -594,6 +652,7 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         username = validated_data.pop('username')
         email = validated_data.pop('email', '')
         password = validated_data.pop('password')
+        _apply_file_alias(validated_data, 'image', 'avatar')
 
         with transaction.atomic():
             user = UserProfile.objects.create_user(
@@ -626,10 +685,22 @@ class StudentSerializer(serializers.ModelSerializer):
     )
     book_count = serializers.SerializerMethodField()
     rank = serializers.SerializerMethodField()
+    avatar = serializers.ImageField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = Student
         fields = '__all__'
+
+    def to_internal_value(self, data):
+        return super().to_internal_value(_normalize_groups_input(data))
+
+    def create(self, validated_data):
+        _apply_file_alias(validated_data, 'image', 'avatar')
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        _apply_file_alias(validated_data, 'image', 'avatar')
+        return super().update(instance, validated_data)
 
     def validate_groups(self, value):
         request = self.context.get('request')
