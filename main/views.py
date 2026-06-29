@@ -980,11 +980,11 @@ class ActiveGroupsView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         group_coin_total = (
-            GivePoint.objects
-            .filter(group=OuterRef('pk'))
+            Student.objects
+            .filter(groups=OuterRef('pk'))
             .order_by()
-            .values('group')
-            .annotate(total=Sum('amount'))
+            .values('groups')
+            .annotate(total=Sum('point'))
             .values('total')
         )
 
