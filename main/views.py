@@ -44,7 +44,7 @@ def _get_request_mentor(user):
 def _can_manage_group(user, group):
     if not user.is_authenticated:
         return False
-    if user.role == 'admin':
+    if is_admin_user(user):
         return True
     mentor = _get_request_mentor(user)
     return bool(mentor and group.mentor_id == mentor.id)
@@ -52,7 +52,7 @@ def _can_manage_group(user, group):
 def _can_transfer_student_between_groups(user, from_group, to_group):
     if not user.is_authenticated:
         return False
-    if user.role == 'admin':
+    if is_admin_user(user):
         return True
     mentor = _get_request_mentor(user)
     return bool(
@@ -613,11 +613,12 @@ class AssessmentTableView(generics.RetrieveAPIView):
     def retrieve(self, request, *args, **kwargs):
         group: Group = self.get_object()
 
-        mentor = _get_request_mentor(request.user)
-        if not mentor:
-            return Response({"detail": "Teacher profile not found"}, status=status.HTTP_403_FORBIDDEN)
-        if group.mentor_id != mentor.id:
-            return Response({"detail": "Group not found or not yours"}, status=status.HTTP_404_NOT_FOUND)
+        if not is_admin_user(request.user):
+            mentor = _get_request_mentor(request.user)
+            if not mentor:
+                return Response({"detail": "Teacher profile not found"}, status=status.HTTP_403_FORBIDDEN)
+            if group.mentor_id != mentor.id:
+                return Response({"detail": "Group not found or not yours"}, status=status.HTTP_404_NOT_FOUND)
 
         d = request.query_params.get("date")  # YYYY-MM-DD
         the_date = timezone.localdate()
@@ -825,16 +826,29 @@ class AssessmentBulkSaveView(generics.CreateAPIView):
         the_date = ser.validated_data["date"]
         items = ser.validated_data["items"]
 
-        mentor = _get_request_mentor(request.user)
-        if not mentor:
-            return Response({"detail": "Teacher profile not found"}, status=status.HTTP_403_FORBIDDEN)
+        if is_admin_user(request.user):
+            group = (
+                Group.objects
+                .filter(pk=group_id)
+                .select_related("course", "mentor")
+                .first()
+            )
+            if not group:
+                return Response({"detail": "Group not found"}, status=status.HTTP_404_NOT_FOUND)
+            mentor = group.mentor
+            if not mentor:
+                return Response({"detail": "Group mentor topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            mentor = _get_request_mentor(request.user)
+            if not mentor:
+                return Response({"detail": "Teacher profile not found"}, status=status.HTTP_403_FORBIDDEN)
 
-        group = (
-            Group.objects
-            .filter(pk=group_id, mentor=mentor)
-            .select_related("course", "mentor")
-            .first()
-        )
+            group = (
+                Group.objects
+                .filter(pk=group_id, mentor=mentor)
+                .select_related("course", "mentor")
+                .first()
+            )
         if not group:
             return Response({"detail": "Group not found or not yours"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -895,24 +909,23 @@ class AssessmentBulkUpdateView(generics.UpdateAPIView):
         ser.is_valid(raise_exception=True)
         items = ser.validated_data["items"]
 
-        mentor = _get_request_mentor(request.user)
-        if not mentor:
-            return Response({"detail": "Teacher profile not found"}, status=status.HTTP_403_FORBIDDEN)
-
         givepoint_ids = [i["givepoint_id"] for i in items]
-        givepoints = {
-            gp.id: gp
-            for gp in GivePoint.objects
-            .select_related("point_type", "student")
-            .filter(id__in=givepoint_ids, mentor=mentor)
-        }
+        givepoint_qs = GivePoint.objects.select_related("point_type", "student", "mentor")
+
+        if is_admin_user(request.user):
+            givepoint_qs = givepoint_qs.filter(id__in=givepoint_ids)
+        else:
+            mentor = _get_request_mentor(request.user)
+            if not mentor:
+                return Response({"detail": "Teacher profile not found"}, status=status.HTTP_403_FORBIDDEN)
+            givepoint_qs = givepoint_qs.filter(id__in=givepoint_ids, mentor=mentor)
+
+        givepoints = {gp.id: gp for gp in givepoint_qs}
 
         updated = 0
         errors = []
 
         with transaction.atomic():
-            mentor_locked = Mentor.objects.select_for_update().get(pk=mentor.pk)
-
             for i in items:
                 gp = givepoints.get(i["givepoint_id"])
                 if not gp:
@@ -922,6 +935,8 @@ class AssessmentBulkUpdateView(generics.UpdateAPIView):
                 new_amt = i["amount"]
                 old_amt = gp.amount
                 delta = new_amt - old_amt
+
+                mentor_locked = Mentor.objects.select_for_update().get(pk=gp.mentor_id)
 
                 if new_amt > gp.point_type.max_point:
                     errors.append({
@@ -939,10 +954,8 @@ class AssessmentBulkUpdateView(generics.UpdateAPIView):
 
                 GivePoint.objects.filter(pk=gp.id).update(amount=new_amt)
                 Student.objects.filter(pk=gp.student_id).update(point=F("point") + delta)
-                mentor_locked.point_limit -= delta
+                Mentor.objects.filter(pk=mentor_locked.pk).update(point_limit=F("point_limit") - delta)
                 updated += 1
-
-            Mentor.objects.filter(pk=mentor.pk).update(point_limit=mentor_locked.point_limit)
 
         return Response({"updated": updated, "errors": errors}, status=status.HTTP_200_OK)
 
